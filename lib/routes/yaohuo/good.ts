@@ -24,10 +24,16 @@ export const handler = async (ctx) => {
     const rootUrl = 'https://yaohuo.me';
     const currentUrl = new URL('bbs/book_list.aspx?action=good&classid=0&siteid=1000', rootUrl).href;
 
+    const defaultHeaders = {
+        Cookie: cookie,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        Referer: rootUrl,
+    };
+
     const response = await ofetch(currentUrl, {
-        headers: {
-            Cookie: cookie,
-        },
+        headers: defaultHeaders,
     });
 
     const html = typeof response === 'string' ? response : String(response);
@@ -52,9 +58,7 @@ export const handler = async (ctx) => {
         // eslint-disable-next-line no-await-in-loop
         const cached = await cache.tryGet(link, async () => {
             const detailResponse = await ofetch(link, {
-                headers: {
-                    Cookie: cookie,
-                },
+                headers: defaultHeaders,
             });
             const feed = processFeed(detailResponse as string);
             return {
