@@ -247,6 +247,7 @@ type ConfigEnvKeys =
     | 'ZODGAME_COOKIE'
     | 'ZSXQ_ACCESS_TOKEN'
     | 'SMZDM_COOKIE'
+    | 'YAOHUO_COOKIE'
     | 'REMOTE_CONFIG'
     | 'REMOTE_CONFIG_AUTH';
 
@@ -709,6 +710,9 @@ export type Config = {
     smzdm: {
         cookie?: string;
     };
+    yaohuo: {
+        cookie?: string;
+    };
 };
 
 const value: Config | Record<string, any> = {};
@@ -761,11 +765,11 @@ const calculateValue = () => {
         chromiumExecutablePath: envs.CHROMIUM_EXECUTABLE_PATH,
         // network
         connect: {
-            port: toInt(envs.PORT, 1200), // 监听端口
+            port: toInt(envs.PORT, 1200), // 鐩戝惉绔彛
         },
-        listenInaddrAny: toBoolean(envs.LISTEN_INADDR_ANY, true), // 是否允许公网连接，取值 0 1
+        listenInaddrAny: toBoolean(envs.LISTEN_INADDR_ANY, true), // 鏄惁鍏佽鍏綉杩炴帴锛屽彇鍊?0 1
         disableIPv6: toBoolean(envs.DISABLE_IPV6, false),
-        requestRetry: toInt(envs.REQUEST_RETRY, 2), // 请求失败重试次数
+        requestRetry: toInt(envs.REQUEST_RETRY, 2), // 璇锋眰澶辫触閲嶈瘯娆℃暟
         requestTimeout: toInt(envs.REQUEST_TIMEOUT, 30000), // Milliseconds to wait for the server to end the response before aborting the request
         ua: envs.UA || (toBoolean(envs.NO_RANDOM_UA, false) ? TRUE_UA : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_6_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'),
         isDefaultUA: !envs.UA && !toBoolean(envs.NO_RANDOM_UA, false),
@@ -775,8 +779,8 @@ const calculateValue = () => {
         cache: {
             type: envs.CACHE_TYPE || (envs.CACHE_TYPE === '' ? '' : 'memory'), // Cache type; supports 'memory', 'redis', and 'http'. Set to empty string to disable cache.
             requestTimeout: toInt(envs.CACHE_REQUEST_TIMEOUT, 60),
-            routeExpire: toInt(envs.CACHE_EXPIRE, 5 * 60), // 路由缓存时间，单位为秒
-            contentExpire: toInt(envs.CACHE_CONTENT_EXPIRE, 1 * 60 * 60), // 不变内容缓存时间，单位为秒
+            routeExpire: toInt(envs.CACHE_EXPIRE, 5 * 60), // 璺敱缂撳瓨鏃堕棿锛屽崟浣嶄负绉?
+            contentExpire: toInt(envs.CACHE_CONTENT_EXPIRE, 1 * 60 * 60), // 涓嶅彉鍐呭缂撳瓨鏃堕棿锛屽崟浣嶄负绉?
         },
         memory: {
             max: toInt(envs.MEMORY_MAX, Math.pow(2, 8)), // The maximum number of items that remain in the cache. This must be a positive finite intger.
@@ -811,7 +815,7 @@ const calculateValue = () => {
         // access control
         accessKey: envs.ACCESS_KEY,
         // logging
-        // 是否显示 Debug 信息，取值 'true' 'false' 'some_string' ，取值为 'true' 时永久显示，取值为 'false' 时永远隐藏，取值为 'some_string' 时请求带上 '?debug=some_string' 显示
+        // 鏄惁鏄剧ず Debug 淇℃伅锛屽彇鍊?'true' 'false' 'some_string' 锛屽彇鍊间负 'true' 鏃舵案涔呮樉绀猴紝鍙栧€间负 'false' 鏃舵案杩滈殣钘忥紝鍙栧€间负 'some_string' 鏃惰姹傚甫涓?'?debug=some_string' 鏄剧ず
         debugInfo: envs.DEBUG_INFO || 'true',
         loggerLevel: envs.LOGGER_LEVEL || 'info',
         noLogfiles: toBoolean(envs.NO_LOGFILES, false),
@@ -1210,6 +1214,9 @@ const calculateValue = () => {
         },
         smzdm: {
             cookie: envs.SMZDM_COOKIE,
+        },
+        yaohuo: {
+            cookie: envs.YAOHUO_COOKIE,
         },
     };
 
