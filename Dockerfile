@@ -55,13 +55,10 @@ COPY --from=dep-version-parser /ver/* /minifier/
 ARG USE_CHINA_NPM_REGISTRY=0
 RUN \
     set -ex && \
+    corepack enable pnpm && \
     if [ "$USE_CHINA_NPM_REGISTRY" = 1 ]; then \
-        npm config set registry https://registry.npmmirror.com && \
-        yarn config set registry https://registry.npmmirror.com && \
         pnpm config set registry https://registry.npmmirror.com ; \
     fi; \
-    npm install -g corepack@latest && \
-    corepack enable pnpm && \
     pnpm add @vercel/nft@$(cat .nft_version) fs-extra@$(cat .fs_extra_version) --save-prod
 
 COPY . /app
@@ -98,8 +95,6 @@ RUN \
     set -ex ; \
     if [ "$PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD" = 0 ] && [ "$TARGETPLATFORM" = 'linux/amd64' ]; then \
         if [ "$USE_CHINA_NPM_REGISTRY" = 1 ]; then \
-            npm config set registry https://registry.npmmirror.com && \
-            yarn config set registry https://registry.npmmirror.com && \
             pnpm config set registry https://registry.npmmirror.com ; \
         fi; \
         echo 'Downloading Chromium...' && \
@@ -173,7 +168,7 @@ COPY --from=docker-minifier /app /app
 EXPOSE 1200
 ENTRYPOINT ["dumb-init", "--"]
 
-CMD ["npm", "run", "start"]
+CMD ["node", "--max-http-header-size=32768", "dist/index.mjs"]
 
 # ---------------------------------------------------------------------------------------------------------------------
 
