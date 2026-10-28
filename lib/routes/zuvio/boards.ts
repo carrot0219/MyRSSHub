@@ -1,4 +1,4 @@
-import type { Route } from '@/types';
+import type { Data, Route } from '@/types';
 
 import { getBoards, rootUrl } from './utils';
 
@@ -20,8 +20,12 @@ export const route: Route = {
     handler,
 };
 
-async function handler() {
-    const items = await getBoards();
+async function handler(): Promise<Data> {
+    const items = (await getBoards()).map((board) => ({
+        title: board.title,
+        description: board.description,
+        link: board.link,
+    }));
 
     return {
         title: 'Zuvio 校園話題列表 - 大學生論壇',
@@ -29,6 +33,6 @@ async function handler() {
         image: 'https://s3.hicloud.net.tw/zuvio.public/public/system/images/irs_v4/chicken/shared/webshare.png',
         link: `${rootUrl}/articles`,
         item: items,
-        language: 'zh-Hant',
+        language: 'zh-TW',
     };
 }

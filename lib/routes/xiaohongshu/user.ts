@@ -98,14 +98,18 @@ async function getUserFeeds(url: string, category: string) {
 
     const renderNote = (notes) =>
         notes.flatMap((n) =>
-            n.map(({ id, noteCard }) => ({
-                title: noteCard.displayTitle,
-                link: new URL(noteCard.noteId || id, url).href,
-                guid: noteCard.displayTitle,
-                description: `<img src="${noteCard.cover.infoList.pop().url}" width="${noteCard.cover.width}" height="${noteCard.cover.height}"><br>${noteCard.displayTitle}`,
-                author: noteCard.user.nickname,
-                upvotes: noteCard.interactInfo.likedCount,
-            }))
+            n.map(({ noteCard, id }) => {
+                const coverUrl = noteCard.cover.infoList.pop().url;
+                const link = `https://www.xiaohongshu.com/explore/${noteCard.noteId || id}`;
+                return {
+                    title: noteCard.displayTitle,
+                    link,
+                    guid: link,
+                    description: `<img src="${coverUrl}" width="${noteCard.cover.width}" height="${noteCard.cover.height}">`,
+                    author: noteCard.user.nickname,
+                    upvotes: noteCard.interactInfo.likedCount,
+                };
+            })
         );
     const renderCollect = (collect) => {
         if (!collect) {
@@ -119,8 +123,8 @@ async function getUserFeeds(url: string, category: string) {
         }
         return collect.data.notes.map((item) => ({
             title: item.display_title,
-            link: `${url}/${item.note_id}`,
-            description: `<img src ="${item.cover.info_list.pop().url}"><br>${item.display_title}`,
+            link: `https://www.xiaohongshu.com/explore/${item.note_id}`,
+            description: `<img src ="${item.cover.info_list.pop().url}">`,
             author: item.user.nickname,
             upvotes: item.interact_info.likedCount,
         }));

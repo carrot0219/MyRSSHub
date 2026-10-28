@@ -1,23 +1,23 @@
 import type { SearchParams } from 'narou';
 import { BigGenre, NarouNovelFetch, SearchBuilder } from 'narou';
-import type { Join } from 'narou/util/type';
 
 import InvalidParameterError from '@/errors/types/invalid-parameter';
-import type { Data, DataItem } from '@/types';
+import type { Data } from '@/types';
 
 import { renderDescription } from './templates/description';
 import { IsekaiCategory, isekaiCategoryToJapanese, NovelType, novelTypeToJapanese, periodToJapanese, periodToOrder, periodToPointField, RankingPeriod } from './types/ranking';
+import { getNovelDates } from './utils';
 
-export function parseIsekaiRankingType(type: string): { period: RankingPeriod; category: IsekaiCategory; novelType: NovelType } {
-    const [periodStr, categoryStr, novelTypeStr = NovelType.TOTAL] = type.split('_');
+type Join<T extends string | number> = `${T}-${T}` | `${T}`;
 
-    const period = periodStr as RankingPeriod;
-    const category = categoryStr as IsekaiCategory;
-    const novelType = novelTypeStr as NovelType;
+function parseIsekaiRankingType(type: string) {
+    const [periodStr, categoryStr, novelTypeStr = NovelType.TOTAL] = type.split('_', 3);
 
-    const isValid = [Object.values(RankingPeriod).includes(period), Object.values(IsekaiCategory).includes(category), Object.values(NovelType).includes(novelType)].every(Boolean);
+    const period = Object.values(RankingPeriod).find((value) => value === periodStr);
+    const category = Object.values(IsekaiCategory).find((value) => value === categoryStr);
+    const novelType = Object.values(NovelType).find((value) => value === novelTypeStr);
 
-    if (!isValid) {
+    if (!period || !category || !novelType) {
         throw new InvalidParameterError(`Invalid isekai ranking type: ${type}`);
     }
 
@@ -75,8 +75,9 @@ export async function handleIsekaiRanking(type: string, limit: number): Promise<
         .toSorted((a, b) => (b[pointField] || 0) - (a[pointField] || 0))
         .map((novel, index) => ({
             title: `#${index + 1} ${novel.title}`,
-            link: `https://ncode.syosetu.com/${String(novel.ncode).toLowerCase()}`,
+            link: `https://ncode.syosetu.com/${novel.ncode.toLowerCase()}`,
             description: renderDescription({ novel }),
+            ...getNovelDates(novel),
             author: novel.writer,
             category: novel.keyword.split(/[\s/\u{FF0F}]/u).filter(Boolean),
         }));
@@ -84,7 +85,8 @@ export async function handleIsekaiRanking(type: string, limit: number): Promise<
     return {
         title: `小説家になろう - ${rankingTitle}`,
         link: rankingUrl,
-        item: items.slice(0, limit) as DataItem[],
+        item: items.slice(0, limit),
+        sortItems: false,
         language: 'ja',
     };
 }

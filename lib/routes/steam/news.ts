@@ -1,5 +1,5 @@
 import bbobHTML from '@bbob/html';
-import { getUniqAttr } from '@bbob/plugin-helper';
+import { getUniqAttr, isStringNode } from '@bbob/plugin-helper';
 import presetHTML5 from '@bbob/preset-html5';
 import type { BBobCoreTagNodeTree, NodeContent, PresetFactory } from '@bbob/types';
 import type { Context } from 'hono';
@@ -7,6 +7,7 @@ import type { Context } from 'hono';
 import type { Data, DataItem, Route } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 export const route: Route = {
     path: '/news/:appid/:language?',
@@ -79,6 +80,7 @@ const langMap = {
     french: 'fr',
     italian: 'it',
     korean: 'ko',
+    koreana: 'ko',
     spanish: 'es',
     schinese: 'zh-Hans',
     tchinese: 'zh-Hant',
@@ -107,8 +109,7 @@ const langMap = {
 
 async function handler(ctx: Context): Promise<Data> {
     const { appid = '958260', language = 'english' } = ctx.req.param();
-    const limitQuery = ctx.req.query('limit');
-    const limit = limitQuery ? Number(limitQuery) : 100;
+    const limit = getRouteLimit(ctx, 100);
 
     const rootUrl = 'https://steamcommunity.com';
     const apiRootUrl = 'https://store.steampowered.com';
@@ -144,14 +145,14 @@ async function handler(ctx: Context): Promise<Data> {
         return {
             title,
             description,
-            pubDate: parseDate(item.announcement_body.posttime, 'X'),
+            pubDate: item.announcement_body.posttime === undefined || item.announcement_body.posttime === null ? undefined : parseDate(item.announcement_body.posttime, 'X'),
             link: new URL(`games/${appid}/announcements/detail/${item.announcement_body.gid}`, rootUrl).href,
             category: item.announcement_body.tags,
             content: {
                 html: description,
                 text: item.announcement_body.body,
             },
-            updated: parseDate(item.announcement_body.updatetime, 'X'),
+            updated: item.announcement_body.updatetime === undefined || item.announcement_body.updatetime === null ? undefined : parseDate(item.announcement_body.updatetime, 'X'),
             image: capsuleImage ? new URL(`images/${item.announcement_body.clanid}/${capsuleImage}`, clanRootUrl).href : undefined,
             banner: titleImage ? new URL(`images/${item.announcement_body.clanid}/${titleImage}`, clanRootUrl).href : undefined,
         };
@@ -162,13 +163,13 @@ async function handler(ctx: Context): Promise<Data> {
         link: new URL(`app/${appid}/allnews/`, rootUrl).href,
         image: new URL(`store_item_assets/steam/apps/${appid}/hero_capsule.jpg`, sharedRootUrl).href,
         item: items,
-        language: langMap[language] || null,
+        language: langMap[language],
     };
 }
 
 const linebreakRenderer = (tree: BBobCoreTagNodeTree) =>
     tree.walk((node) => {
-        if (typeof node === 'string' && node === '\n') {
+        if (node === '\n') {
             return {
                 tag: 'br',
                 content: null,
@@ -179,15 +180,16 @@ const linebreakRenderer = (tree: BBobCoreTagNodeTree) =>
 
 const plainUrlRenderer = (tree: BBobCoreTagNodeTree) =>
     tree.walk((node) => {
-        if (typeof node === 'string' && /https?:\/\/\S+/.test(node)) {
+        const text = isStringNode(node) ? String(node) : null;
+        if (text !== null && /https?:\/\/\S+/.test(text)) {
             let lastIndex = 0;
             let match: RegExpExecArray | null;
             const content: NodeContent[] = [];
 
             const urlRe = /https?:\/\/\S+/g;
-            while ((match = urlRe.exec(node)) !== null) {
+            while ((match = urlRe.exec(text)) !== null) {
                 if (match.index > lastIndex) {
-                    content.push(node.slice(lastIndex, match.index));
+                    content.push(text.slice(lastIndex, match.index));
                 }
                 content.push({
                     tag: 'a',
@@ -202,8 +204,8 @@ const plainUrlRenderer = (tree: BBobCoreTagNodeTree) =>
                 lastIndex = match.index + match[0].length;
             }
 
-            if (lastIndex < node.length) {
-                content.push(node.slice(lastIndex));
+            if (lastIndex < text.length) {
+                content.push(text.slice(lastIndex));
             }
 
             if (content.length === 0) {
@@ -241,7 +243,7 @@ const customPreset: PresetFactory = presetHTML5.extend((tags) => ({
     url: (node) => ({
         tag: 'a',
         attrs: {
-            href: Object.keys(node.attrs as Record<string, string>)[0],
+            href: Object.keys(node.attrs!)[0],
             rel: 'noopener',
             target: '_blank',
         },
@@ -254,7 +256,6 @@ const customPreset: PresetFactory = presetHTML5.extend((tags) => ({
             title: 'YouTube video player',
             frameborder: '0',
             allowFullScreen: '1',
-            refererpolicy: 'strict-origin-when-cross-origin',
         },
     }),
     video: (node, { render }) => ({

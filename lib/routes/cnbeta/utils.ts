@@ -7,9 +7,9 @@ import timezone from '@/utils/timezone';
 
 const rootUrl = 'https://www.cnbeta.com.tw';
 
-const ProcessItems = (items, limit) =>
+const ProcessItems = (items, limit: number = 60) =>
     Promise.all(
-        items.slice(0, limit ? Number.parseInt(limit) : 60).map((item) =>
+        items.slice(0, limit).map((item) =>
             cache.tryGet(item.link, async () => {
                 const detailResponse = await got(item.link);
 
@@ -17,7 +17,7 @@ const ProcessItems = (items, limit) =>
 
                 content('.topic, .article-topic, .article-global').remove();
 
-                item.description = content('.article-summary').html() + content('.article-content').html();
+                item.description = content('.article-summary').html()! + content('.article-content').html()!;
                 item.author = content('header.title div.meta span.source').text();
                 item.pubDate ??= timezone(parseDate(content('.meta span').first().text(), 'YYYY年MM月DD日 HH:mm'), 8);
 

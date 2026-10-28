@@ -1,9 +1,10 @@
 import { load } from 'cheerio';
 
-import type { Route } from '@/types';
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 const rootUrl = 'https://www.miit.gov.cn';
 
@@ -34,15 +35,14 @@ async function handler(ctx) {
     const ministry = ctx.req.param('ministry');
     const url = `${rootUrl}/jgsj/${ministry}/wjfb/index.html`;
 
-    const cookieResponse = await got(url);
-    const cookie = cookieResponse.headers['set-cookie'][0].split(';', 1)[0];
-    const indexContent = load(cookieResponse.data);
+    const indexResponse = await got(url);
+    const indexContent = load(indexResponse.data);
     const title = indexContent('div.dqwz > a:nth-child(4)').text();
     const dataRequestUrl = indexContent('div.lmy_main_rb > script:nth-child(2)')
         .toArray()
         .map((item) => ({
             url: `${rootUrl}${indexContent(item).attr('url')}`,
-            queryData: JSON.parse(indexContent(item).attr('querydata').replaceAll('"', '|').replaceAll(/['|]/g, '"')),
+            queryData: JSON.parse(indexContent(item).attr('querydata')!.replaceAll('"', '|').replaceAll(/['|]/g, '"')),
         }))[0];
 
     const dataUrl = `${dataRequestUrl.url}?${Object.entries(dataRequestUrl.queryData)
@@ -51,18 +51,18 @@ async function handler(ctx) {
     const response = await got({
         method: 'get',
         url: dataUrl,
-        headers: {
-            Cookie: cookie,
-        },
     });
     const $ = load(response.data.data.html);
     const list = $('ul > li')
         .toArray()
-        .map((item) => ({
-            title: $(item).find('a').text(),
-            link: new URL($(item).find('a').attr('href'), rootUrl).href,
-            pubDate: parseDate($(item).find('span').text(), 'YYYY-MM-DD'),
-        }));
+        .map((item): DataItem & { link: string } => {
+            const pubDate = $(item).find('span').text();
+            return {
+                title: $(item).find('a').text(),
+                link: new URL($(item).find('a').attr('href')!, rootUrl).href,
+                pubDate: pubDate ? timezone(parseDate(pubDate, 'YYYY-MM-DD'), 8) : undefined,
+            };
+        });
 
     const items = await Promise.all(
         list.map((item) =>
@@ -70,9 +70,11 @@ async function handler(ctx) {
                 const detailResponse = await got(item.link);
                 const content = load(detailResponse.data);
 
-                item.description = content('#con_con')
-                    .html()
-                    ?.replaceAll(/(<iframe.*?src=")([^"]*)(".*?>)/g, (_match, p1, p2, p3) => p1 + rootUrl + p2 + p3);
+                item.description = content('#con_con').html();
+                const pubDate = content('meta[name="PubDate"]').attr('content');
+                if (pubDate) {
+                    item.pubDate = timezone(parseDate(pubDate), 8);
+                }
 
                 return item;
             })

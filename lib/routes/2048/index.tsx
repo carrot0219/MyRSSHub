@@ -1,6 +1,6 @@
 import { load } from 'cheerio';
 
-import type { Route } from '@/types';
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
@@ -64,14 +64,20 @@ async function handler(ctx) {
     const id = ctx.req.param('id') ?? '3';
 
     const rootUrl = 'https://hjd2048.com';
-    // 获取地址发布页指向的 URL
-    const domainInfo = await cache.tryGet('2048:domainInfo', async () => {
+    // Resolve the address page before caching the forum URL.
+    const domainInfo = await cache.tryGet('2048:domainInfo:v2', async () => {
         const response = await ofetch('https://2048.info');
         const $ = load(response);
-        const onclickValue = $('.button').first().attr('onclick');
-        const targetUrl = onclickValue?.match(/window\.open\('([^']+)'/)?.[1];
-
-        return { url: new URL(targetUrl, 'https://2048.info').href };
+        const button = $('.button');
+        const target = button.attr('href') || button.attr('onclick')?.match(/window\.open\(\s*(['"])(.*?)\1/)?.[2];
+        if (!target) {
+            throw new Error('The 2048 address page did not contain a forum link.');
+        }
+        const url = new URL(target, 'https://2048.info');
+        if (!['https:', 'http:'].includes(url.protocol)) {
+            throw new Error('The 2048 address page contained an unsupported forum URL.');
+        }
+        return { url: url.href };
     });
     // 获取重定向后的url
     const redirectResponse = await ofetch.raw(domainInfo.url);
@@ -91,7 +97,7 @@ async function handler(ctx) {
         86400, // fixed cookie duration: 24 hours
         false
     );
-    const currentUrl = `${redirected.url}thread.php?fid-${id}.html`;
+    const currentUrl = new URL(`thread.php?fid-${id}.html`, redirected.url).href;
 
     const response = await ofetch.raw(currentUrl, {
         headers: {
@@ -109,13 +115,13 @@ async function handler(ctx) {
         .last()
         .nextAll('.tr3')
         .toArray()
-        .map((item) => {
-            item = $(item).find('a.subject');
+        .map((item): DataItem & { link: string; guid: string } => {
+            const $item = $(item).find('a.subject');
 
             return {
-                title: item.text(),
-                link: `${currentHost}/${item.attr('href')}`,
-                guid: `${rootUrl}/2048/${item.attr('href')}`,
+                title: $item.text(),
+                link: `${currentHost}/${$item.attr('href')}`,
+                guid: `${rootUrl}/2048/${$item.attr('href')}`,
             };
         })
         .filter((item) => !item.link.includes('undefined'));
@@ -142,8 +148,8 @@ async function handler(ctx) {
                     content(el).replaceWith(`<img src="${imgSrc}">`);
                 });
 
-                item.author = content('.fl.black').first().text();
-                item.pubDate = timezone(parseDate(content('span.fl.gray').first().attr('title')), 8);
+                item.author = content('.fl.black').text();
+                item.pubDate = timezone(parseDate(content('span.fl.gray').attr('title')!), 8);
 
                 const readTpc = content('#read_tpc').first();
                 const copyLink = content('#copytext')?.first()?.text();
@@ -151,7 +157,7 @@ async function handler(ctx) {
                 const magnetText = readTpc.find('.magnet-text').first().text().trim();
 
                 // Extract enclosure: rmdown.com (fetch page for magnet) | magnet from 哈希校验 | copyLink
-                const rmdownLink = readTpc.find('a[href*="rmdown.com/link.php"]').first().attr('href');
+                const rmdownLink = readTpc.find('a[href*="rmdown.com/link.php"]').attr('href');
                 const enclosureHref = rmdownLink?.startsWith('http') ? rmdownLink : rmdownLink ? `https://www.rmdown.com/${rmdownLink}` : null;
 
                 if (enclosureHref) {

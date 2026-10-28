@@ -1,6 +1,6 @@
 import { load } from 'cheerio'; // An HTML parser with an API similar to jQuery
 
-import type { Route } from '@/types';
+import type { Data, Route } from '@/types';
 // import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch'; // Unified request library used
 // import playwright from '@/utils/playwright';
@@ -29,7 +29,7 @@ async function handler() {
     return items;
 }
 
-async function fetchPage() {
+async function fetchPage(): Promise<Data> {
     const baseUrl = 'https://dealstreetasia.com'; // Define base URL
 
     const response = await ofetch(`${baseUrl}/`);
@@ -63,11 +63,19 @@ async function fetchPage() {
         category: item.category_link ? item.category_link.replaceAll(/(<([^>]+)>)/g, '') : '', // Clean HTML if category_link exists
         image: item.image_url ? item.image_url.replace(/\?.*$/, '') : '', // Remove query parameters if image_url exists
     }));
+    const seenLinks = new Set<string>();
+    const items = list.filter((item) => {
+        if (!item.link || seenLinks.has(item.link)) {
+            return false;
+        }
+        seenLinks.add(item.link);
+        return true;
+    });
 
     return {
         title: 'Deal Street Asia',
         language: 'en',
-        item: list,
+        item: items,
         link: 'https://dealstreetasia.com/',
     };
 }

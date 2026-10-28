@@ -1,19 +1,18 @@
-import dayjs from 'dayjs';
 import { renderToString } from 'hono/jsx/dom/server';
 import Parser from 'rss-parser';
 
 import InvalidParameterError from '@/errors/types/invalid-parameter';
-import type { Route } from '@/types';
+import type { DataItem, Route } from '@/types';
 import { fallback, queryToBoolean } from '@/utils/readable-social';
 
 const titleRegex = /(.*\S)\s+is\s+([A-Z]+)\s+\((.+)\)/;
 
 const formatTime = (s) => {
-    const duration = dayjs.duration(s - 0, 'seconds');
-    const days = duration.days();
-    const hours = duration.hours();
-    const minutes = duration.minutes();
-    const seconds = duration.seconds();
+    const totalSeconds = Number(s);
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
 
     if (days > 0) {
         return `${days}d ${hours}h ${minutes}m ${seconds}s`;
@@ -28,6 +27,9 @@ const formatTime = (s) => {
 };
 
 class Monitor {
+    name: string;
+    uptime: number;
+    downtime: number;
     constructor(name, uptime = 0, downtime = 0) {
         this.name = name;
         this.uptime = uptime;
@@ -98,13 +100,14 @@ async function handler(ctx) {
     const monitors = {};
 
     const items = rss.items.toReversed().map((item) => {
-        const titleMatch = item.title.match(titleRegex);
+        const titleMatch = item.title!.match(titleRegex);
         if (!titleMatch) {
             throw new InvalidParameterError('Unexpected title, please open an issue.');
         }
         const [monitorName, status, id] = titleMatch.slice(1);
 
-        if (id !== item.link) {
+        const incidentLink = item.link?.startsWith('https://dashboard.uptimerobot.com/incidents/') ? item.link : undefined;
+        if (id !== item.link && !incidentLink) {
             throw new InvalidParameterError('Monitor ID mismatch, please open an issue.');
         }
 
@@ -169,15 +172,15 @@ async function handler(ctx) {
             ...item,
             title: `[${status}] ${monitorName}`,
             description: desc,
-            link: showID ? link : null,
+            link: showID ? (incidentLink ?? link) : undefined,
         };
     });
 
     return {
         title: 'Uptime Robot - RSS (enhanced)',
         description: rss.description,
-        link: rssUrl,
-        item: items,
+        link: rss.link ?? 'https://uptimerobot.com',
+        item: items as DataItem[],
         image: 'https://uptimerobot.com/favicon.ico',
     };
 }

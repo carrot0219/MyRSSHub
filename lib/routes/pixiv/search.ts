@@ -64,7 +64,12 @@ export const route: Route = {
         },
     },
     features: {
-        requireConfig: false,
+        requireConfig: [
+            {
+                name: 'PIXIV_REFRESHTOKEN',
+                description: 'Pixiv refresh token required for accessing the app API.',
+            },
+        ],
         requirePuppeteer: false,
         antiCrawler: false,
         supportBT: false,
@@ -116,6 +121,7 @@ async function handler(ctx) {
                 pubDate: parseDate(illust.create_date),
                 description: `${illust.caption}<br><p>画师：${illust.user.name} - 阅览数：${illust.total_view} - 收藏数：${illust.total_bookmarks}</p>${images.join('')}`,
                 link: `https://www.pixiv.net/artworks/${illust.id}`,
+                category: illust.tags.map((tag) => tag.name),
             };
         }),
         allowEmpty: true,

@@ -1,5 +1,16 @@
+import { createElement } from 'hono/jsx';
+import { renderToString } from 'hono/jsx/dom/server';
+
 import { parseDate } from '@/utils/parse-date';
 import { fallback, queryToBoolean, queryToInteger } from '@/utils/readable-social';
+
+const getPublicationDate = (value?: string | number | Date): Date | undefined => {
+    if ((typeof value !== 'string' && typeof value !== 'number' && !(value instanceof Date)) || (typeof value === 'string' && !value.trim())) {
+        return undefined;
+    }
+    const date = parseDate(value);
+    return Number.isFinite(date.getTime()) ? date : undefined;
+};
 
 const getQueryParams = (url) => Object.fromEntries(new URL(url).searchParams.entries());
 const getOriginalImg = (url) => {
@@ -14,10 +25,7 @@ const getOriginalImg = (url) => {
     }
     if ((m = url.match(/^(https?:\/\/\w+\.twimg\.com\/[^?]+)(\?.+)$/i))) {
         const pars = getQueryParams(url);
-        if (!pars.format || !pars.name) {
-            return url;
-        }
-        if (pars.name === 'orig') {
+        if (!pars.format || !pars.name || pars.name === 'orig') {
             return url;
         }
         return m[1] + '?format=' + pars.format + '&name=orig';
@@ -42,7 +50,64 @@ const formatText = (item) => {
     return text.trim().replaceAll('\n', '<br>');
 };
 
-const ProcessFeed = (ctx, { data = [] }, params = {}) => {
+interface ProcessFeedParams {
+    readable?: boolean;
+    authorNameBold?: boolean;
+    showAuthorInTitle?: boolean;
+    showAuthorAsTitleOnly?: boolean;
+    showAuthorInDesc?: boolean;
+    showQuotedAuthorAvatarInDesc?: boolean;
+    showAuthorAvatarInDesc?: boolean;
+    showEmojiForRetweetAndReply?: boolean;
+    showSymbolForRetweetAndReply?: boolean;
+    showRetweetTextInTitle?: boolean;
+    useRetweetDate?: boolean;
+    showLikesCountInTitle?: boolean;
+    includeReplyContext?: boolean;
+    addLinkForPics?: boolean;
+    showTimestampInDescription?: boolean;
+    showQuotedInTitle?: boolean;
+    widthOfPics?: number;
+    heightOfPics?: number;
+    sizeOfAuthorAvatar?: number;
+    sizeOfQuotedAuthorAvatar?: number;
+    mediaNumber?: number | boolean;
+    showEmojiForSubscriberOnly?: boolean;
+    showSymbolForSubscriberOnly?: boolean;
+    showFullPrefixForSubscriberOnly?: boolean;
+}
+
+const renderReplyContext = (tweet) => {
+    const parents: any[] = [];
+    const seen = new Set([tweet.id_str]);
+    let parent = tweet.in_reply_to_status;
+    while (parent?.id_str && !seen.has(parent.id_str) && parents.length < 5) {
+        seen.add(parent.id_str);
+        parents.unshift(parent);
+        parent = parent.in_reply_to_status;
+    }
+    if (!parents.length) {
+        return '';
+    }
+    return renderToString(
+        createElement(
+            'div',
+            { class: 'rsshub-reply-context' },
+            ...parents.map((parent) =>
+                createElement(
+                    'blockquote',
+                    {},
+                    parent.user?.screen_name
+                        ? createElement('a', { href: `https://x.com/${encodeURIComponent(parent.user.screen_name)}/status/${encodeURIComponent(parent.id_str)}` }, parent.user.name || parent.user.screen_name)
+                        : undefined,
+                    createElement('p', { style: 'white-space: pre-wrap' }, parent.full_text || parent.text || '')
+                )
+            )
+        )
+    );
+};
+
+const ProcessFeed = (ctx, { data = [] }: { data?: any[] }, params: ProcessFeedParams = {}) => {
     // undefined and strings like "exclude_rts_replies" is also safely parsed, so no if branch is needed
     const routeParams = new URLSearchParams(ctx.req.param('routeParams'));
 
@@ -57,6 +122,9 @@ const ProcessFeed = (ctx, { data = [] }, params = {}) => {
         showEmojiForRetweetAndReply: fallback(params.showEmojiForRetweetAndReply, queryToBoolean(routeParams.get('showEmojiForRetweetAndReply')), false),
         showSymbolForRetweetAndReply: fallback(params.showSymbolForRetweetAndReply, queryToBoolean(routeParams.get('showSymbolForRetweetAndReply')), true),
         showRetweetTextInTitle: fallback(params.showRetweetTextInTitle, queryToBoolean(routeParams.get('showRetweetTextInTitle')), true),
+        useRetweetDate: fallback(params.useRetweetDate, queryToBoolean(routeParams.get('useRetweetDate')), false),
+        showLikesCountInTitle: fallback(params.showLikesCountInTitle, queryToBoolean(routeParams.get('showLikesCountInTitle')), false),
+        includeReplyContext: fallback(params.includeReplyContext, queryToBoolean(routeParams.get('includeReplyContext')), false),
         addLinkForPics: fallback(params.addLinkForPics, queryToBoolean(routeParams.get('addLinkForPics')), false),
         showTimestampInDescription: fallback(params.showTimestampInDescription, queryToBoolean(routeParams.get('showTimestampInDescription')), false),
         showQuotedInTitle: fallback(params.showQuotedInTitle, queryToBoolean(routeParams.get('showQuotedInTitle')), false),
@@ -70,8 +138,6 @@ const ProcessFeed = (ctx, { data = [] }, params = {}) => {
         showSymbolForSubscriberOnly: fallback(params.showSymbolForSubscriberOnly, queryToBoolean(routeParams.get('showSymbolForSubscriberOnly')), true),
         showFullPrefixForSubscriberOnly: fallback(params.showFullPrefixForSubscriberOnly, queryToBoolean(routeParams.get('showFullPrefixForSubscriberOnly')), false),
     };
-
-    params = mergedParams;
 
     const {
         readable,
@@ -95,11 +161,11 @@ const ProcessFeed = (ctx, { data = [] }, params = {}) => {
         heightOfPics,
         sizeOfAuthorAvatar,
         sizeOfQuotedAuthorAvatar,
-    } = params;
+    } = mergedParams;
 
     const formatVideo = (media, extraAttrs = '') => {
         let content = '';
-        let bestVideo = null;
+        let bestVideo: any = null;
 
         for (const item of media.video_info.variants) {
             if (!bestVideo || (item.bitrate || 0) > (bestVideo.bitrate || -Infinity)) {
@@ -164,10 +230,11 @@ const ProcessFeed = (ctx, { data = [] }, params = {}) => {
 
                 img += content;
 
-                if (mediaNumber) {
-                    img += `<p style="text-align:center">${index}/${mediaCount}</p>`;
-                    index++;
+                if (!mediaNumber) {
+                    continue;
                 }
+                img += `<p style="text-align:center">${index}/${mediaCount}</p>`;
+                index++;
             }
         }
 
@@ -273,8 +340,9 @@ const ProcessFeed = (ctx, { data = [] }, params = {}) => {
                         author.screen_name
                     }/status/${quoteData.id_str || quoteData.conversation_id_str}</a></small>`;
                 }
-                if (showTimestampInDescription) {
-                    quote += '<br><small>' + parseDate(quoteData.created_at);
+                const quoteDate = getPublicationDate(quoteData.created_at);
+                if (showTimestampInDescription && quoteDate) {
+                    quote += '<br><small>' + quoteDate;
                     quote += '</small>';
                     if (readable) {
                         quote += `<br clear='both' /><div style='clear: both'></div>`;
@@ -289,7 +357,7 @@ const ProcessFeed = (ctx, { data = [] }, params = {}) => {
         }
 
         // Make title
-        let title = '';
+        let title = mergedParams.showLikesCountInTitle && Number.isFinite(item.favorite_count) ? `[${item.favorite_count}] ` : '';
         if (showAuthorInTitle) {
             title += originalItem.user?.name + ': ';
         }
@@ -389,18 +457,22 @@ const ProcessFeed = (ctx, { data = [] }, params = {}) => {
 
         description += item.full_text;
         // 从 description 提取 话题作为 category，放在此处是为了避免 匹配到 quote 中的 # 80808030 颜色字符
-        const category = description.match(/(\s)?(#[^\s;<]+)/g)?.map((e) => e?.match(/#([^\s<]+)/)?.[1]);
+        const category = description
+            .match(/(\s)?(#[^\s;<]+)/g)
+            ?.map((e) => e?.match(/#([^\s<]+)/)?.[1])
+            .filter((e) => e !== undefined);
         description += img;
         description += quote;
         if (readable) {
             description += `<br clear='both' /><div style='clear: both'></div>`;
         }
 
-        if (showTimestampInDescription) {
+        const itemDate = getPublicationDate(item.created_at);
+        if (showTimestampInDescription && itemDate) {
             if (readable) {
                 description += '<hr>';
             }
-            description += `<small>${parseDate(item.created_at)}</small>`;
+            description += `<small>${itemDate}</small>`;
         }
 
         const link =
@@ -416,8 +488,8 @@ const ProcessFeed = (ctx, { data = [] }, params = {}) => {
                     avatar: originalItem.user?.profile_image_url_https,
                 },
             ],
-            description,
-            pubDate: parseDate(item.created_at),
+            description: (mergedParams.includeReplyContext ? renderReplyContext(item) : '') + description,
+            pubDate: getPublicationDate(mergedParams.useRetweetDate ? (originalItem.created_at ?? item.created_at) : item.created_at),
             link,
             guid: link.replace('x.com', 'twitter.com'),
             category,
@@ -477,7 +549,7 @@ const parseRouteParams = (routeParams) => {
 
         default: {
             const parsed = new URLSearchParams(routeParams);
-            count = fallback(undefined, queryToInteger(parsed.get('count')));
+            count = fallback(undefined, queryToInteger(parsed.get('count')), undefined);
             include_replies = fallback(undefined, queryToBoolean(parsed.get('includeReplies')), false);
             include_rts = fallback(undefined, queryToBoolean(parsed.get('includeRts')), true);
             force_web_api = fallback(undefined, queryToBoolean(parsed.get('forceWebApi')), false);
@@ -487,8 +559,8 @@ const parseRouteParams = (routeParams) => {
     return { count, include_replies, include_rts, force_web_api, only_media };
 };
 
-export const excludeRetweet = function (tweets) {
-    const excluded = [];
+const excludeRetweet = function (tweets) {
+    const excluded: any[] = [];
     for (const t of tweets) {
         if (t.retweeted_status) {
             continue;
@@ -498,10 +570,12 @@ export const excludeRetweet = function (tweets) {
     return excluded;
 };
 
-export const keepOnlyMedia = function (tweets) {
+const keepOnlyMedia = function (tweets) {
     const excluded = tweets.filter((t) => t.extended_entities && t.extended_entities.media);
     return excluded;
 };
+
+export const getTwitterUserCacheKey = (id: string, operationName: string, params: Record<string, string | number | boolean | undefined> | undefined) => `twitter:${id}:${operationName}:${JSON.stringify(params)}`;
 
 export default {
     ProcessFeed,

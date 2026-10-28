@@ -12,12 +12,12 @@
       # Helper to define the RSSHub package
       makeRSSHub = pkgs:
         let
-          pnpm = pkgs.pnpm_10;
+          pnpm = pkgs.pnpm_12;
           deps = pkgs.fetchPnpmDeps {
             pname = "rsshub";
             src = ./.;
-            hash = "sha256-7fqPDVqQglOp665prmFWcxqhUPM6BDk/DjAVIvBSFTQ=";
-            fetcherVersion = 2;
+            hash = "sha256-W4pZyrPajbAf6XlBSpewQ35J2kHz3JCgCZVcM0lonO0=";
+            fetcherVersion = 4;
           };
         in
         pkgs.stdenv.mkDerivation rec {
@@ -27,7 +27,7 @@
           src = ./.;
 
           nativeBuildInputs = with pkgs; [
-            nodejs_22
+            nodejs_24
             pnpm
             pnpmConfigHook
             git

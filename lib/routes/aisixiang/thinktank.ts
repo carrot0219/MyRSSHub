@@ -3,6 +3,7 @@ import { load } from 'cheerio';
 import InvalidParameterError from '@/errors/types/invalid-parameter';
 import type { Route } from '@/types';
 import got from '@/utils/got';
+import { getRouteLimit } from '@/utils/route-limit';
 
 import { ossUrl, ProcessFeed, rootUrl } from './utils';
 
@@ -28,7 +29,7 @@ export const route: Route = {
 
 async function handler(ctx) {
     const { id, type = '' } = ctx.req.param();
-    const limit = ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 30;
+    const limit = getRouteLimit(ctx, 30);
 
     const currentUrl = new URL(`thinktank/${id}.html`, rootUrl).href;
 
@@ -36,9 +37,9 @@ async function handler(ctx) {
 
     const $ = load(response);
 
-    const title = `${$('h2').first().text().trim()}${type}`;
+    const title = `${$('h2').first().text()}${type}`;
 
-    let items = [];
+    let items: any[] = [];
 
     const targetList = $('h3')
         .toArray()
@@ -48,15 +49,15 @@ async function handler(ctx) {
     }
 
     for (const l of targetList) {
-        items = [...items, ...$(l).parent().find('ul li a').toArray()];
+        items.push(...$(l).parent().find('ul li a').toArray());
     }
 
     items = items.slice(0, limit).map((item) => {
-        item = $(item);
+        const $item = $(item);
 
         return {
-            title: item.text().split('：').pop(),
-            link: new URL(item.prop('href'), rootUrl).href,
+            title: $item.text().split('：').pop(),
+            link: new URL($item.prop('href')!, rootUrl).href,
         };
     });
 
@@ -65,7 +66,7 @@ async function handler(ctx) {
         title: `爱思想 - ${title}`,
         link: currentUrl,
         description: $('div.thinktank-author-description-box p').text(),
-        language: 'zh-cn',
+        language: 'zh-CN' as const,
         image: new URL('images/logo_thinktank.jpg', ossUrl).href,
         subtitle: title,
     };

@@ -1,14 +1,16 @@
 import { load } from 'cheerio';
+import pMap from 'p-map';
 
-import type { Route } from '@/types';
+import type { Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 import { renderDescription } from './templates/description';
 
 export const handler = async (ctx) => {
-    const limit = ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 10;
+    const limit = getRouteLimit(ctx, 10);
 
     const rootUrl = 'https://www.kadokawa.com.tw';
     const currentUrl = new URL('blog/posts', rootUrl).href;
@@ -17,16 +19,16 @@ export const handler = async (ctx) => {
 
     const $ = load(response);
 
-    const language = $('html').prop('lang');
+    const language = $('html').prop('lang') as Language;
 
     let items = $('div.List-item')
         .slice(0, limit)
         .toArray()
         .map((item) => {
-            item = $(item);
+            const $item = $(item);
 
-            const image = item.find('div.List-item-excerpt img').prop('data-src')?.split(/\?/, 1)[0] ?? undefined;
-            const title = item.find('h2.List-item-title').text();
+            const image = $item.find('div.List-item-excerpt img').prop('data-src')?.split(/\?/, 1)[0] ?? undefined;
+            const title = $item.find('h2.List-item-title').text();
             const description = renderDescription({
                 images: image
                     ? [
@@ -36,17 +38,17 @@ export const handler = async (ctx) => {
                           },
                       ]
                     : undefined,
-                intro: item.find('div.List-item-preview').text(),
+                intro: $item.find('div.List-item-preview').text(),
             });
 
             return {
                 title,
                 description,
-                pubDate: parseDate(item.find('span.primary-border-color-after').text()),
-                link: new URL(item.find('a').prop('href'), rootUrl).href,
+                pubDate: parseDate($item.find('span.primary-border-color-after').text()),
+                link: new URL($item.find('a').prop('href')!, rootUrl).href,
                 content: {
                     html: description,
-                    text: item.find('div.List-item-preview').text(),
+                    text: $item.find('div.List-item-preview').text(),
                 },
                 image,
                 banner: image,
@@ -54,8 +56,9 @@ export const handler = async (ctx) => {
             };
         });
 
-    items = await Promise.all(
-        items.map((item) =>
+    items = await pMap(
+        items,
+        (item) =>
             cache.tryGet(item.link, async () => {
                 const { data: detailResponse } = await got(item.link);
 
@@ -66,9 +69,9 @@ export const handler = async (ctx) => {
                     $$(img).removeAttr('data-src');
                 });
 
-                const title = $$('h1.Post-title').text().trim();
+                const title = $$('h1.Post-title').text();
                 const description = renderDescription({
-                    description: $$('div.Post-content').html(),
+                    description: $$('div.Post-content').html() ?? undefined,
                 });
                 const image = $$('meta[property="og:image"]').prop('content')?.split(/\?/, 1)[0] ?? undefined;
 
@@ -84,18 +87,18 @@ export const handler = async (ctx) => {
                 item.language = language;
 
                 return item;
-            })
-        )
+            }),
+        { concurrency: 3 }
     );
 
-    const image = new URL($('meta[property="og:image"]').prop('content'), rootUrl).href;
+    const imageSrc = $('meta[property="og:image"]').prop('content');
+    const image = imageSrc ? new URL(imageSrc, rootUrl).href : undefined;
 
     return {
         title: $('title').text(),
         description: $('meta[property="og:description"]').prop('content'),
         link: currentUrl,
         item: items,
-        allowEmpty: true,
         image,
         author: $('meta[property="og:site_name"]').prop('content'),
         language,

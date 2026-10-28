@@ -36,28 +36,12 @@ export const route: Route = {
         {
             title: '中文版新闻',
             source: ['cn.nikkei.com/:category/:type', 'cn.nikkei.com/:category', 'cn.nikkei.com/'],
-            target: (params) => {
-                if (params.category && params.type) {
-                    return `/nikkei/cn/cn/${params.category}/${params.type.replace('.html', '')}`;
-                }
-                if (params.category && !params.type) {
-                    return `/nikkei/cn/cn/${params.category.replace('.html', '')}`;
-                }
-                return '/nikkei/cn/cn';
-            },
+            target: '/cn/cn/:category?/:type?',
         },
         {
             title: '中文版新聞',
             source: ['zh.cn.nikkei.com/:category/:type', 'zh.cn.nikkei.com/:category', 'zh.cn.nikkei.com/'],
-            target: (params) => {
-                if (params.category && params.type) {
-                    return `/nikkei/cn/zh/${params.category}/${params.type.replace('.html', '')}`;
-                }
-                if (params.category && !params.type) {
-                    return `/nikkei/cn/zh/${params.category.replace('.html', '')}`;
-                }
-                return '/nikkei/cn/zh';
-            },
+            target: '/cn/zh/:category?/:type?',
         },
     ],
 };
@@ -71,6 +55,9 @@ async function handler(ctx) {
         path = path.match(new RegExp(String.raw`\/cn\/` + language + '(.*)'))[1];
     } else {
         language = 'cn';
+        if (path === '/cn' || path === '/cn/') {
+            path = '/';
+        }
     }
 
     const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 25;
@@ -102,11 +89,11 @@ async function handler(ctx) {
         items = $('dt a')
             .toArray()
             .map((item) => {
-                item = $(item);
+                const $item = $(item);
 
                 return {
-                    title: item.text(),
-                    link: new URL(item.attr('href'), currentUrl).href,
+                    title: $item.text(),
+                    link: new URL($item.attr('href'), currentUrl).href,
                 };
             })
             .filter((item) => {
@@ -121,7 +108,7 @@ async function handler(ctx) {
 
     items = await Promise.all(
         items.map((item) =>
-            cache.tryGet(item.link, async () => {
+            cache.tryGet(item.link!, async () => {
                 const detailResponse = await got({
                     method: 'get',
                     url: `${item.link}?print=1`,
@@ -133,10 +120,10 @@ async function handler(ctx) {
                 divs.first().remove();
                 divs.last().remove();
 
-                item.pubDate = timezone(parseDate(item.link.match(/\/\d+-(.*?)\.html/)[1], 'YYYY-MM-DD-HH-mm-ss'), 9);
+                item.pubDate = timezone(parseDate(item.link!.match(/\/\d+-(.*?)\.html/)![1], 'YYYY-MM-DD-HH-mm-ss'), 9);
 
                 item.author = content('meta[name="author"]').attr('content');
-                item.title ??= content('meta[name="twitter:title"]').attr('content');
+                item.title ??= content('meta[name="twitter:title"]').attr('content')!;
                 item.description = content('#contentDiv').html()?.replaceAll('&nbsp;', '').replaceAll('<p></p>', '');
 
                 return item;

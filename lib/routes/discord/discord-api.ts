@@ -1,9 +1,10 @@
 import crypto from 'node:crypto';
 
-import type { RESTGetAPIChannelMessagesQuery, RESTGetAPIChannelMessagesResult, RESTGetAPIChannelResult, RESTGetAPIGuildChannelsResult, RESTGetAPIGuildResult } from 'discord-api-types/rest/v10';
+import type { RESTGetAPIChannelMessagesQuery, RESTGetAPIChannelMessagesResult, RESTGetAPIChannelResult, RESTGetAPIGuildResult } from 'discord-api-types/rest/v10';
 import type { APIMessage } from 'discord-api-types/v10';
 
 import { config } from '@/config';
+import RequestInProgressError from '@/errors/types/request-in-progress';
 import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
 
@@ -14,46 +15,37 @@ const apiUrl = `${baseUrl}/api/v10`;
 
 export const getGuild = (guildId, authorization) =>
     cache.tryGet(`discord:guilds:${guildId}`, () =>
-        ofetch(`${apiUrl}/guilds/${guildId}`, {
+        ofetch<RESTGetAPIGuildResult>(`${apiUrl}/guilds/${guildId}`, {
             headers: {
                 authorization,
             },
         })
-    ) as Promise<RESTGetAPIGuildResult>;
-
-export const getGuildChannels = (guildId, authorization) =>
-    cache.tryGet(`discord:guilds:${guildId}:channels`, () =>
-        ofetch(`${apiUrl}/guilds/${guildId}/channels`, {
-            headers: {
-                authorization,
-            },
-        })
-    ) as Promise<RESTGetAPIGuildChannelsResult>;
+    );
 
 export const getChannel = (channelId, authorization) =>
     cache.tryGet(`discord:channels:${channelId}`, () =>
-        ofetch(`${apiUrl}/channels/${channelId}`, {
+        ofetch<RESTGetAPIChannelResult>(`${apiUrl}/channels/${channelId}`, {
             headers: {
                 authorization,
             },
         })
-    ) as Promise<RESTGetAPIChannelResult>;
+    );
 
 export const getChannelMessages = (channelId, authorization, limit = 100) =>
     cache.tryGet(
-        `discord:channels:${channelId}:messages`,
+        `discord:channels:${channelId}:messages:${limit}`,
         () =>
-            ofetch(`${apiUrl}/channels/${channelId}/messages`, {
+            ofetch<RESTGetAPIChannelMessagesResult>(`${apiUrl}/channels/${channelId}/messages`, {
                 headers: {
                     authorization,
                 },
                 query: {
                     limit,
-                } as RESTGetAPIChannelMessagesQuery,
+                } satisfies RESTGetAPIChannelMessagesQuery,
             }),
         config.cache.routeExpire,
         false
-    ) as Promise<RESTGetAPIChannelMessagesResult>;
+    );
 
 interface SearchGuildMessagesResult {
     analytics_id: string;
@@ -62,9 +54,11 @@ interface SearchGuildMessagesResult {
     messages: APIMessage[][];
 }
 
-export const VALID_HAS_TYPES = new Set(['link', 'embed', 'poll', 'file', 'video', 'image', 'sound', 'sticker', 'snapshot'] as const);
+const HAS_TYPES = ['link', 'embed', 'poll', 'file', 'video', 'image', 'sound', 'sticker', 'snapshot'] as const;
 
-export type HasType = typeof VALID_HAS_TYPES extends Set<infer T> ? T : never;
+export type HasType = (typeof HAS_TYPES)[number];
+
+export const VALID_HAS_TYPES: ReadonlySet<string> = new Set(HAS_TYPES);
 
 export interface SearchGuildMessagesParams {
     content?: string;
@@ -80,20 +74,25 @@ export interface SearchGuildMessagesParams {
 export const searchGuildMessages = (guildId: string, authorization: string, params: SearchGuildMessagesParams) =>
     cache.tryGet(
         `discord:guilds:${guildId}:search:${JSON.stringify(params)}`,
-        () => {
+        async () => {
             const queryParams = {
                 ...params,
                 has: params.has?.length ? params.has : undefined,
             };
 
-            return ofetch(`${apiUrl}/guilds/${guildId}/messages/search`, {
+            const response = await ofetch.raw<SearchGuildMessagesResult & { retry_after?: number }>(`${apiUrl}/guilds/${guildId}/messages/search`, {
                 headers: { authorization },
                 query: queryParams,
             });
+            if (response.status === 202) {
+                const retryAfter = response._data?.retry_after;
+                throw new RequestInProgressError(`Discord search index is not ready. Please retry ${retryAfter && retryAfter > 0 ? `after ${retryAfter} seconds` : 'shortly'}.`);
+            }
+            return response._data!;
         },
         config.cache.routeExpire,
         false
-    ) as Promise<SearchGuildMessagesResult>;
+    );
 
 export const getQuests = (authorization: string) =>
     cache.tryGet(
@@ -127,4 +126,4 @@ export const getQuests = (authorization: string) =>
         },
         config.cache.routeExpire,
         false
-    ) as Promise<QuestResponse>;
+    );

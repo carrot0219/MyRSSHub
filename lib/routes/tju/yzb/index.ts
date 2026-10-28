@@ -1,14 +1,26 @@
 import { load } from 'cheerio';
 import iconv from 'iconv-lite';
+import pMap from 'p-map';
 
-import type { Route } from '@/types';
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
 import timezone from '@/utils/timezone';
 
 const yzb_base_url = 'http://yzb.tju.edu.cn/';
-const repo_url = 'https://github.com/DIYgod/RSSHub/issues';
+
+const getArticle = async (link: string) => {
+    try {
+        const response = await got(link, { responseType: 'buffer' });
+        const $ = load(iconv.decode(response.data, 'gbk'));
+        $('.font_18_b, .font_grey_en').remove();
+        return { description: $('.nav_a10 > table > tbody').html() ?? undefined };
+    } catch {
+        // Keep the source listing when an article detail is unavailable.
+        return {};
+    }
+};
 
 const pageType = (href) => {
     if (href === undefined) {
@@ -67,38 +79,14 @@ async function handler(ctx) {
             subtitle = '校级公告';
             path = 'xwzx/zxxx/';
     }
-    let response = null;
-    try {
-        response = await got(yzb_base_url + path, {
-            headers: {
-                Referer: yzb_base_url,
-            },
-            responseType: 'buffer',
-        });
-    } catch {
-        // ignore error handler
-        // console.log(e);
-    }
-
-    if (response === null) {
-        return {
-            title: '天津大学研究生招生网 - ' + subtitle,
-            link: yzb_base_url + path,
-            description: '链接失效' + yzb_base_url + path,
-            item: [
-                {
-                    title: '提示信息',
-                    link: repo_url,
-                    description: `<h2>请到<a href=${repo_url}>此处</a>提交Issue</h2>`,
-                },
-            ],
-        };
-    }
+    const response = await got(yzb_base_url + path, {
+        responseType: 'buffer',
+    });
     const $ = load(iconv.decode(response.data, 'gbk'));
     const list = $('td.table_left_right > table > tbody > tr:nth-child(3) > td > table > tbody > tr:nth-child(1) > td > table > tbody > tr')
         .slice(1, -1)
         .toArray()
-        .map((item) => {
+        .map((item): DataItem & { type: string } => {
             const href = $('td > a', item).attr('href');
             const type = pageType(href);
             return {
@@ -109,27 +97,18 @@ async function handler(ctx) {
             };
         });
 
-    const items = await Promise.all(
-        list.map((item) => {
+    const items = await pMap(
+        list,
+        async (item) => {
             switch (item.type) {
                 case 'tju-yzb':
                 case 'in-site':
-                    return cache.tryGet(item.link, async () => {
-                        try {
-                            const detailResponse = await got(item.link, { responseType: 'buffer' });
-                            const content = load(iconv.decode(detailResponse.data, 'gbk'));
-                            content('.font_18_b').remove();
-                            content('.font_grey_en').remove();
-                            item.description = content('.nav_a10 > table > tbody').html();
-                        } catch {
-                            // ignore error handler
-                        }
-                        return item;
-                    });
+                    return { ...item, ...(await cache.tryGet(`tju:yzb:article:${item.link}`, () => getArticle(item.link!))) };
                 default:
                     return item;
             }
-        })
+        },
+        { concurrency: 3 }
     );
 
     return {

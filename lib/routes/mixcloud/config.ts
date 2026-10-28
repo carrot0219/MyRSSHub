@@ -28,7 +28,7 @@ export const TYPE_NAMES = {
     playlist: 'Playlist',
 };
 
-export const CLOUDCAST_FIELDS = `
+const CLOUDCAST_FIELDS = `
   id
   slug
   name
@@ -78,7 +78,7 @@ export const CLOUDCAST_FIELDS = `
   }
 `;
 
-export function getObjectFields(type: string): { objectType: string; objectFields: string } {
+export function getObjectFields(type: string) {
     if (type === 'playlist') {
         return {
             objectType: 'playlist',

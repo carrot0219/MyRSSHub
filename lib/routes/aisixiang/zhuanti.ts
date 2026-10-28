@@ -3,6 +3,7 @@ import { load } from 'cheerio';
 import type { Route } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 import timezone from '@/utils/timezone';
 
 import { ossUrl, ProcessFeed, rootUrl } from './utils';
@@ -30,7 +31,7 @@ export const route: Route = {
 
 async function handler(ctx) {
     const id = ctx.req.param('id');
-    const limit = ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 30;
+    const limit = getRouteLimit(ctx, 30);
 
     const currentUrl = new URL(`zhuanti/${id}.html`, rootUrl).href;
 
@@ -38,21 +39,21 @@ async function handler(ctx) {
 
     const $ = load(response);
 
-    const title = $('div.tips h2').first().text();
+    const title = $('div.tips h2').text();
 
     const items = $('div.article-title')
         .slice(0, limit)
         .toArray()
         .map((item) => {
-            item = $(item);
+            const $item = $(item);
 
-            const a = item.find('a');
+            const a = $item.find('a');
 
             return {
                 title: a.text(),
-                link: new URL(a.prop('href'), rootUrl).href,
+                link: new URL(a.prop('href')!, rootUrl).href,
                 author: a.text().split('：', 1)[0],
-                pubDate: timezone(parseDate(item.find('span').text()), 8),
+                pubDate: timezone(parseDate($item.find('span').text()), 8),
             };
         });
 
@@ -61,7 +62,7 @@ async function handler(ctx) {
         title: `爱思想 - ${title}`,
         link: currentUrl,
         description: $('div.tips p').text(),
-        language: 'zh-cn',
+        language: 'zh-CN' as const,
         image: new URL('images/logo_zhuanti.jpg', ossUrl).href,
         subtitle: title,
     };

@@ -58,7 +58,6 @@ export const handler = async (ctx) => {
         description: $('meta[name="description"]').prop('content'),
         link: currentUrl,
         item: items,
-        allowEmpty: true,
         image,
         author: $('meta[name="application-name"]').prop('content'),
     };
@@ -90,7 +89,7 @@ export const route: Route = {
         {
             source: ['www.flyert.com.cn/forum.php'],
             target: (_, url) => {
-                const params = url.searchParams
+                const params = new URL(url).searchParams
                     .entries()
                     .toArray()
                     .map(([key, value]) => key + '=' + value)

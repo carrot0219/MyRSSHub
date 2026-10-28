@@ -38,22 +38,21 @@ async function handler(ctx) {
     const name = ctx.req.param('name');
     const rssUrl = `https://rss.cnki.net/kns/rss.aspx?Journal=${name}&Virtual=knavi`;
 
-    const rssResponse = await got.get(rssUrl);
-
     try {
+        const rssResponse = await got.get(rssUrl);
         const feed = await parser.parseString(rssResponse.data);
 
         if (feed.items && feed.items.length !== 0) {
             const items = feed.items.map((item) => ({
-                title: item.title,
+                title: item.title!,
                 description: item.content,
-                pubDate: parseDate(item.pubDate),
+                pubDate: parseDate(item.pubDate!),
                 link: item.link,
                 author: item.author,
             }));
 
             return {
-                title: feed.title,
+                title: feed.title!,
                 link: feed.link,
                 description: feed.description,
                 item: items,
@@ -72,7 +71,7 @@ async function handler(ctx) {
     const yearListRes = await got.get(yearListUrl);
     const $yearList = load(yearListRes.data);
     const code = $yearList('.yearissuepage').find('dl').first().find('dd').find('a').first().attr('value');
-    const date = parseDate($yearList('.yearissuepage').find('dl').first().find('dd').find('a').first().attr('id').replace('yq', ''), 'YYYYMM');
+    const date = parseDate($yearList('.yearissuepage').find('dl').first().find('dd').find('a').first().attr('id')!.replace('yq', ''), 'YYYYMM');
 
     const yearIssueUrl = `${rootUrl}/knavi/journals/${name}/papers?yearIssue=${code}&pageIdx=0&pcode=CJFD,CCJD`;
     const response = await got.post(yearIssueUrl);
@@ -95,7 +94,7 @@ async function handler(ctx) {
     const items = await Promise.all(list.map((item) => cache.tryGet(item.link, () => ProcessItem(item))));
 
     return {
-        title: String(title),
+        title,
         link: journalUrl,
         item: items,
     };

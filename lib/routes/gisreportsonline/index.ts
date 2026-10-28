@@ -1,6 +1,6 @@
 import { load } from 'cheerio';
 
-import type { Route } from '@/types';
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
@@ -8,7 +8,7 @@ import { parseDate } from '@/utils/parse-date';
 export const route: Route = {
     path: '/:path{.+}?',
     categories: ['new-media'],
-    example: '/gisreportsonline/gis/c/security-challenges/',
+    example: '/gisreportsonline/c/security-challenges/',
     parameters: { path: '包含"Reports"页面下的路径' },
     name: '报告',
     maintainers: ['dzx-dzx'],
@@ -29,22 +29,26 @@ async function handler(ctx) {
 
     const list = $('article h3 a')
         .toArray()
-        .map((e) => ({ link: $(e).attr('href'), title: $(e).text() }));
+        .map((e): DataItem => ({
+            link: $(e).attr('href'),
+            title: $(e).text(),
+        }));
 
     const items = await Promise.all(
         list.map((item) =>
-            cache.tryGet(item.link, async () => {
-                const html = await ofetch(item.link);
+            cache.tryGet(item.link!, async () => {
+                const html = await ofetch(item.link!);
                 const content = load(html);
                 const ldjson = JSON.parse(content('script.rank-math-schema-pro').text())['@graph'].find((e) => e['@type'] === 'NewsArticle');
 
                 item.pubDate = parseDate(ldjson.datePublished);
                 item.updated = parseDate(ldjson.dateModified);
-                item.author = [ldjson.author];
+                item.author = [{ name: ldjson.author.name }];
                 item.category = ldjson.keywords.split(',');
                 item.language = ldjson.inLanguage;
 
-                item.description = content('header.entry-header ~ :not(#pos-conclusion ~ *)')
+                item.description = content('.entry-content.single-content')
+                    .children(':not(#pos-conclusion ~ *)')
                     .toArray()
                     .map((e) => content(e).prop('outerHTML'))
                     .join('');

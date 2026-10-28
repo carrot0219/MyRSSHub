@@ -5,6 +5,7 @@ import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import timezone from '@/utils/timezone';
 
 import { namespace } from './namespace';
 
@@ -104,7 +105,7 @@ export const route: Route = {
                 // use seperate cache key for special path
                 const cacheKey = isSpecial ? `${item.itemLink}-special` : item.itemLink;
 
-                return cache.tryGet(cacheKey, async (): Promise<Record<string, any>> => {
+                return cache.tryGet(cacheKey, async (): Promise<Partial<DataItem>> => {
                     const detailResponse = await got({
                         method: 'get',
                         url: item.itemLink,
@@ -117,7 +118,7 @@ export const route: Route = {
                         .find((text) => text.includes('发布日期'))!
                         .replaceAll('发布日期:', '')
                         .trim();
-                    const pubDate = parseDate(pubDateRaw);
+                    const pubDate = timezone(parseDate(pubDateRaw, 'YYYY-MM-DD'), 8);
 
                     // Default path: return as news, no detail information for return
                     if (!isSpecial) {
@@ -130,7 +131,7 @@ export const route: Route = {
                                     <img src={item.imgUrl} />
                                 </div>
                             ),
-                        } as Record<string, any>;
+                        };
                     }
 
                     // Special path to return detail exhibition information
@@ -142,12 +143,12 @@ export const route: Route = {
 
                     // filter out items without title, for example: https://www.chnmus.net/ch/information/exhibition/details.html?id=7400076083917230080#list
                     if (!title) {
-                        return {} as Record<string, any>;
+                        return {};
                     }
 
                     const location = texts
-                        .find((text) => text.includes('展览地点：'))!
-                        .replaceAll('展览地点：', '')
+                        .find((text) => /^展览地点\s*[:：]/.test(text))
+                        ?.replace(/^展览地点\s*[:：]\s*/, '')
                         .trim();
 
                     const fullDuration = texts
@@ -162,10 +163,12 @@ export const route: Route = {
                         <div>
                             <img src={imgUrl} />
                             <br />
-                            <p>
-                                <b>地点：</b>
-                                {location}
-                            </p>
+                            {location && (
+                                <p>
+                                    <b>地点：</b>
+                                    {location}
+                                </p>
+                            )}
                             <p>
                                 <b>开展：</b>
                                 {startDate ?? '未定/常设'}
@@ -195,8 +198,8 @@ export const route: Route = {
                             endDate,
                             itemLink,
                         },
-                    } as Record<string, any>;
-                }) as Promise<DataItem>;
+                    };
+                });
             })
         );
 
@@ -204,7 +207,7 @@ export const route: Route = {
             title: `${museumName} - 展览资讯${isSpecial ? ' - 特展详情' : ''}`,
             link: apiUrl,
             language: 'zh-CN',
-            item: items.filter((item) => item.title) as DataItem[],
+            item: items.filter((item): item is DataItem => Boolean(item.title)),
         };
     },
 };

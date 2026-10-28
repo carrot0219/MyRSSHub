@@ -49,7 +49,6 @@ async function handler(ctx) {
             returnType: 'ajax',
         },
     });
-
     const articles = response.data.result?.items || [];
 
     const list = articles.map((article) => {
@@ -78,7 +77,6 @@ async function handler(ctx) {
 
                 // Remove ads
                 $content.find('.googleBanner').remove();
-                $content.find('script').remove();
                 $content.find('style').remove();
 
                 if ($content.length > 0) {

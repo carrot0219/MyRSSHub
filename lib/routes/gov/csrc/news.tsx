@@ -51,35 +51,38 @@ async function handler(ctx) {
             },
         });
 
-        out = data.data.data.results.map((item) => ({
-            title: item.title,
-            description:
-                (item.contentHtml ?? '') +
-                renderToString(
-                    <>
-                        {item.resList?.map((attachment) => {
-                            const href = attachment.filePath?.startsWith('/') ? `${baseUrl}${attachment.filePath}` : attachment.filePath;
-                            return (
-                                <a href={href} key={`${attachment.fileName}-${attachment.filePath}`}>
-                                    {attachment.fileName}
-                                </a>
-                            );
-                        })}
-                    </>
-                ),
-            pubDate: parseDate(item.publishedTime, 'x'),
-            link: item.url,
-        }));
+        out = data.data.data.results.map((item) => {
+            const date = item.publishedTime !== undefined && item.publishedTime !== null ? parseDate(item.publishedTime, 'x') : undefined;
+            return {
+                title: item.title,
+                description:
+                    (item.contentHtml ?? '') +
+                    renderToString(
+                        <>
+                            {item.resList?.map((attachment) => {
+                                const href = attachment.filePath?.startsWith('/') ? `${baseUrl}${attachment.filePath}` : attachment.filePath;
+                                return (
+                                    <a href={href} key={`${attachment.fileName}-${attachment.filePath}`}>
+                                        {attachment.fileName}
+                                    </a>
+                                );
+                            })}
+                        </>
+                    ),
+                pubDate: date && !Number.isNaN(date.getTime()) ? date : undefined,
+                link: item.url,
+            };
+        });
     } else {
         const list = $('#list li')
             .toArray()
-            .map((item) => {
-                item = $(item);
-                const a = item.find('a');
+            .map((item): DataItem & { link: string } => {
+                const $item = $(item);
+                const a = $item.find('a');
                 return {
                     title: a.text(),
                     link: `${baseUrl}${a.attr('href')}`,
-                    pubDate: timezone(parseDate(item.find('.data').text(), 'YYYY-MM-DD'), 8),
+                    pubDate: timezone(parseDate($item.find('.data').text(), 'YYYY-MM-DD'), 8),
                 };
             });
 

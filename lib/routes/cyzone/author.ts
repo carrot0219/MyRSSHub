@@ -1,4 +1,5 @@
 import type { Route } from '@/types';
+import { getRouteLimit } from '@/utils/route-limit';
 
 import { apiRootUrl, getInfo, processItems, rootUrl } from './util';
 
@@ -21,13 +22,13 @@ export const route: Route = {
         },
     ],
     name: '作者',
-    maintainers: ['nczitzk'],
+    maintainers: ['xyqfer', 'nczitzk'],
     handler,
 };
 
 async function handler(ctx) {
     const id = ctx.req.param('id');
-    const limit = ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 5;
+    const limit = getRouteLimit(ctx, 5);
 
     const apiUrl = new URL('v2/author/author/detail', apiRootUrl).href;
     const currentUrl = new URL(`author/${id}`, rootUrl).href;

@@ -1,9 +1,10 @@
 import { renderToString } from 'hono/jsx/dom/server';
 
-import type { Route } from '@/types';
+import type { Data, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 import timezone from '@/utils/timezone';
 
 export const route: Route = {
@@ -45,9 +46,9 @@ export const route: Route = {
 | 参考人物       | cankaorw |`,
 };
 
-async function handler(ctx) {
+async function handler(ctx): Promise<Data> {
     const id = ctx.req.param('id') ?? 'diyi';
-    const limit = ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 50;
+    const limit = getRouteLimit(ctx, 50);
 
     const rootUrl = 'https://china.cankaoxiaoxi.com';
     const listApiUrl = `${rootUrl}/json/channel/${id}/list.json`;
@@ -100,7 +101,7 @@ async function handler(ctx) {
         title: `参考消息 - ${channelResponse.data.name}`,
         link: currentUrl,
         description: '参考消息',
-        language: 'zh-cn',
+        language: 'zh-CN',
         item: items,
     };
 }

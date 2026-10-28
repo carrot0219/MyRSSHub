@@ -89,15 +89,12 @@ export const route: Route = {
                 },
             });
 
-        const res = await Promise.all([query(1), query(2)]);
-
-        for (const each of res) {
-            if (each.code !== '0') {
-                throw new Error(each.message);
-            }
+        const res = await query(1);
+        if (res.code !== '0') {
+            throw new Error(res.message);
         }
 
-        const list: DataItem[] = [...res[0].content, ...res[1].content]
+        const list: DataItem[] = res.content
             .filter((e) => e.statusName !== '待发学时')
             .map((each) => ({
                 id: each.id,
@@ -126,8 +123,8 @@ export const route: Route = {
         return {
             title: '二课活动 - 四川农业大学',
             link: 'https://jk.sicau.edu.cn/act/actInfo/v1.0.0/getUserSchoolActList',
-            language: 'zh-cn',
-            item: items as DataItem[],
+            language: 'zh-CN',
+            item: items,
         };
     },
 };

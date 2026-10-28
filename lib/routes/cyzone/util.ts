@@ -1,5 +1,6 @@
 import { load } from 'cheerio';
 
+import type { Data } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
@@ -14,24 +15,23 @@ const apiShowUrl = new URL('v2/content/app_content/show', apiRootUrl).href;
  * @returns {Promise<Object>} - A promise that resolves to an object containing the retrieved information.
  */
 const getInfo = (url) =>
-    cache.tryGet(url, async () => {
+    cache.tryGet(url, async (): Promise<Data> => {
         const { data: response } = await got(url);
 
         const $ = load(response);
 
         const avatar = $('img.avatar')?.prop('src')?.split('?', 1)[0] ?? undefined;
-        const icon = new URL($('link[rel="icon"]')?.prop('href'), rootUrl).href;
-        const image = new URL($('div.logo img')?.prop('src'), rootUrl).href;
+        const icon = new URL($('link[rel="icon"]').prop('href')!, rootUrl).href;
+        const image = new URL($('div.logo img').prop('src')!, rootUrl).href;
 
         return {
             title: $('title').text(),
             link: url,
             description: $('meta[name="description"]').prop('content'),
-            language: 'zh-cn',
+            language: 'zh-CN',
             image: avatar || image,
             icon,
             logo: icon,
-            subtitle: $('meta[name="keywords"]').prop('content'),
             author: $('meta[name="app-mobile-web-app-title"]').prop('content'),
         };
     });
@@ -45,20 +45,21 @@ const getInfo = (url) =>
  */
 const processItems = async (apiUrl, limit, ...params) => {
     // Merge search parameters
-    let searchParams = {
+    const searchParams = {
         size: limit,
     };
     for (const param of params) {
-        searchParams = {
-            ...searchParams,
-            ...param,
-        };
+        Object.assign(searchParams, param);
     }
 
     const { data: response } = await got(apiUrl, {
         searchParams,
     });
 
+    return processItemList(response, limit);
+};
+
+const processItemList = async (response, limit) => {
     let items = (response.data?.article ?? response.data?.data ?? response.data).slice(0, limit).map((item) => {
         item = item.item ?? item;
 
@@ -90,14 +91,14 @@ const processItems = async (apiUrl, limit, ...params) => {
 
                 content('img').each((_, el) => {
                     if (content(el).prop('src')) {
-                        content(el).prop('src', content(el).prop('src').split('?', 1)[0]);
+                        content(el).prop('src', content(el).prop('src')!.split('?', 1)[0]);
                     } else {
                         content(el).remove();
                     }
                 });
 
                 item.title = data.title;
-                // api 返回的 link_url 数据可能是空, 所有最好自己通过 id 拼接 url
+                // The API link_url can be empty, so use the native article path.
                 item.link = `${rootUrl}/article/${item.guid}.html`;
                 item.description = content.html();
                 item.author = data.author_name ?? data.author;
@@ -114,4 +115,4 @@ const processItems = async (apiUrl, limit, ...params) => {
     return items;
 };
 
-export { apiRootUrl, getInfo, processItems, rootUrl };
+export { apiRootUrl, getInfo, processItemList, processItems, rootUrl };

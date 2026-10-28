@@ -1,6 +1,6 @@
 import { load } from 'cheerio';
 
-import type { Route } from '@/types';
+import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
@@ -43,36 +43,35 @@ async function handler(ctx) {
 
     let items = $('.pageList li a')
         .toArray()
-        .map((item) => {
-            item = $(item);
+        .map((item): DataItem => {
+            const $item = $(item);
 
-            const link = item.attr('href');
+            const link = $item.attr('href');
+            const date = $item.next().text().trim();
+            const pubDate = date ? timezone(parseDate(date, ['YYYY.MM.DD', 'YYYY-MM-DD'], true), 8) : undefined;
 
             return {
-                title: item.text(),
-                pubDate: parseDate(item.next().text()),
-                link: link.startsWith('http') ? link : `${rootUrl}${link}`,
+                title: $item.text(),
+                pubDate: pubDate && Number.isFinite(pubDate.getTime()) ? pubDate : undefined,
+                link: link!.startsWith('http') ? link : `${rootUrl}${link}`,
             };
         });
 
     items = await Promise.all(
         items.map((item) =>
-            cache.tryGet(item.link, async () => {
-                try {
-                    const detailResponse = await got({
-                        method: 'get',
-                        url: item.link,
-                    });
+            cache.tryGet(item.link!, async () => {
+                const detailResponse = await got({
+                    method: 'get',
+                    url: item.link,
+                });
 
-                    const content = load(detailResponse.data);
+                const content = load(detailResponse.data);
 
-                    const pubDate = content('meta[name="pubdate"]').attr('content') || content('meta[name="PubDate"]').attr('content');
+                const date = (content('meta[name="pubdate"]').attr('content') || content('meta[name="PubDate"]').attr('content'))?.replaceAll('∶', ':');
+                const pubDate = date ? timezone(parseDate(date, ['YYYY-MM-DD HH:mm:ss', 'YYYY-MM-DD HH:mm'], true), 8) : undefined;
 
-                    item.description = content('#ivs_content').html();
-                    item.pubDate = timezone(parseDate(pubDate, ['YYYY-MM-DD HH:mm:ss', 'YYYY-MM-DD HH:mm']), 8);
-                } catch {
-                    // no-empty
-                }
+                item.description = content('#ivs_content').html();
+                item.pubDate = pubDate && Number.isFinite(pubDate.getTime()) ? pubDate : item.pubDate;
 
                 return item;
             })

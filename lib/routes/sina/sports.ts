@@ -7,7 +7,7 @@ import { parseArticle } from './utils';
 
 export const route: Route = {
     path: '/sports/:type?',
-    name: '新浪体育',
+    name: '体育',
     categories: ['sport'],
     example: '/sina/sports',
     parameters: { type: '类别' },
@@ -38,10 +38,10 @@ async function handler(ctx) {
     const list = $(query)
         .toArray()
         .map((item) => {
-            item = $(item);
+            const $item = $(item);
             return {
-                title: item.text(),
-                link: item.attr('href').replace('http://', 'https://'),
+                title: $item.text(),
+                link: $item.attr('href')!.replace('http://', 'https://'),
             };
         });
 

@@ -1,5 +1,6 @@
 import { load } from 'cheerio';
 import { renderToString } from 'hono/jsx/dom/server';
+import pMap from 'p-map';
 
 import type { DataItem, Route } from '@/types';
 import cache from '@/utils/cache';
@@ -17,7 +18,7 @@ const extractDates = (durationStr: string) => {
         return { startDate, endDate };
     }
 
-    const parts = durationStr.split(/[-—~]+/).map((p) => p.trim()); // currently ——and- is used, add — or ~ for redundency
+    const parts = durationStr.split(/[-—~]+/); // currently ——and- is used, add — or ~ for redundency
     const startStr = parts[0];
     const endStr = parts[1];
 
@@ -94,25 +95,26 @@ export const route: Route = {
 
                 return {
                     title: listTitle,
-                    itemLink: link,
-                    imgUrl: `${baseUrl}${imgUrlRaw}`,
+                    itemLink: `${baseUrl}${link}`,
+                    imgUrl: imgUrlRaw,
                 };
             });
 
-        const items = await Promise.all(
-            list.map((item) => {
+        const items = await pMap(
+            list,
+            (item) => {
                 // use seperate cache key for special path
-                const cacheKey = isSpecial ? `${item.itemLink}-special` : (item.itemLink as string);
+                const cacheKey = isSpecial ? `${item.itemLink}-special` : item.itemLink;
 
-                return cache.tryGet(cacheKey, async (): Promise<Record<string, any>> => {
+                return cache.tryGet(cacheKey, async (): Promise<Partial<DataItem>> => {
                     const detailResponse = await got({
                         method: 'get',
                         url: item.itemLink,
                     });
                     const content = load(detailResponse.data);
 
-                    const pubDateRaw = content('.article .info .infowrap img.icon_time').next('span').text().replaceAll('时间：', '').trim();
-                    const pubDate = parseDate(pubDateRaw);
+                    const pubDateRaw = content('.article .info .infowrap img.icon_time').next('span').text().replaceAll('时间：', '');
+                    const pubDate = pubDateRaw ? parseDate(pubDateRaw) : undefined;
 
                     // Default path: return as news, no detail information for return
                     if (!isSpecial) {
@@ -125,37 +127,33 @@ export const route: Route = {
                                     <img src={item.imgUrl} />
                                 </div>
                             ),
-                        } as Record<string, any>;
+                        };
                     }
 
                     // Special path to return detail exhibition information
-                    let rawText = content('.content.f16').text() || ''; // get descption text from detail page
+                    let rawText = content('.content.f16').text(); // get descption text from detail page
 
                     rawText = rawText.replaceAll(/\s+/g, '');
 
-                    const texts = rawText.split(/(?=展览名称：|展览时间：|时间：|展览地点：|展出地点：|地点：)/);
+                    const texts = rawText.split(/(?=展览名称：|展览时间：|展览日期：|时间：|展览地点：|展出地点：|地点：)/);
 
                     // use fullDration to extract startDate and endDate, if fullDuration is not exist, return empty data
-                    const fullDuration = texts
-                        .find((text) => text.includes('时间：'))
-                        ?.replaceAll(/(?:展览)?时间：/g, '')
-                        ?.trim();
+                    const fullDuration = texts.find((text) => text.includes('时间：') || text.includes('日期：'))?.replaceAll(/(?:展览)?(?:时间|日期)：/g, '') || '';
 
-                    if (!fullDuration) {
-                        return {} as Record<string, any>;
-                    }
+                    let location = texts.find((text) => text.includes('地点：'))?.replaceAll(/(?:展(?:览|出))?地点：/g, '') || '';
 
-                    let location =
-                        texts
-                            .find((text) => text.includes('地点：'))
-                            ?.replaceAll(/(?:展(?:览|出))?地点：/g, '')
-                            ?.trim() || '';
-
-                    const locMatch = location.match(/^.*?展厅/) || [''];
+                    const locMatch = location.match(/^.*?厅/) || [''];
 
                     location = locMatch[0];
 
-                    let title = texts.find((text) => text.includes('展览名称：'))?.replaceAll('展览名称：', '');
+                    if (!location) {
+                        location = rawText.match(/(河北博物院[^，。；：“”]*?厅)/)?.[1] || '';
+                    }
+
+                    let title = texts
+                        .find((text) => /^【?展览名称[】：]/.test(text))
+                        ?.replace(/^【?展览名称[】：]/, '')
+                        .replaceAll(/^[“《]|[”》]$/g, '');
 
                     // Some exhibition titles are not in the format of "展览名称: xxx", try to extract title from the original list title if the above method failed
                     if (!title) {
@@ -164,14 +162,17 @@ export const route: Route = {
 
                         if (quoteMatch) {
                             title = quoteMatch[1];
-                        } else if (item.title.includes('|')) {
-                            const pipeParts = item.title.split('|');
-                            title = pipeParts.at(-1);
+                        } else if (/[|｜]/.test(item.title)) {
+                            const pipeParts = item.title.split(/[|｜]/);
+                            title = pipeParts.at(-1)?.trim();
+                        } else {
+                            title = item.title;
                         }
                     }
 
-                    const { startDate, endDate } = extractDates(fullDuration || '');
+                    const { startDate, endDate } = extractDates(fullDuration);
                     const { imgUrl, itemLink } = item;
+                    const articleContent = content('.content.f16').html();
 
                     const description = renderToString(
                         <div>
@@ -189,10 +190,12 @@ export const route: Route = {
                                 <b>闭展：</b>
                                 {endDate ?? '未定/常设'}
                             </p>
-                            {fullDuration && (
+                            {fullDuration ? (
                                 <p>
                                     <small>原始展期：{fullDuration}</small>
                                 </p>
+                            ) : (
+                                <div>{articleContent}</div>
                             )}
                         </div>
                     );
@@ -210,16 +213,17 @@ export const route: Route = {
                             endDate,
                             itemLink,
                         },
-                    } as Record<string, any>;
-                }) as Promise<DataItem>;
-            })
+                    };
+                });
+            },
+            { concurrency: 3 }
         );
 
         return {
             title: `${museumName} - 临时展览${isSpecial ? ' - 特展详情' : ''}`,
             link: apiUrl,
             language: 'zh-CN',
-            item: items.filter((item) => item.title) as DataItem[],
+            item: items.filter((item): item is DataItem => Boolean(item.title)),
         };
     },
 };

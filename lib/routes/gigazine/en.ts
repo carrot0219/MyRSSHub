@@ -1,11 +1,12 @@
-import { load } from 'cheerio';
+import { type CheerioAPI, load } from 'cheerio';
 import pMap from 'p-map';
 
-import type { DataItem, Route } from '@/types';
+import type { DataItem, Language, Route } from '@/types';
 import { ViewType } from '@/types';
 import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 
 const ROOT_URL = 'https://gigazine.net';
 const LIST_URL = `${ROOT_URL}/gsc_news/en/`;
@@ -19,16 +20,15 @@ const getRequestOptions = (referer: string) => ({
     },
 });
 const getAbsoluteUrl = (path: string | undefined) => (path ? new URL(path, ROOT_URL).href : undefined);
-const getArticleAuthor = ($: ReturnType<typeof load>) =>
+const getArticleAuthor = ($: CheerioAPI) =>
     $('#article .items p')
         .text()
-        .match(/Posted by\s+(\S.*)$/)?.[1]
-        ?.trim();
-const getArticleCategories = ($: ReturnType<typeof load>) => [
+        .match(/Posted by\s+(\S.*)$/)?.[1];
+const getArticleCategories = ($: CheerioAPI) => [
     ...new Set(
         $('#article .items p a[href*="/gsc_news/en/C"]')
             .toArray()
-            .map((element) => $(element).text().trim())
+            .map((element) => $(element).text())
             .filter(Boolean)
     ),
 ];
@@ -37,7 +37,6 @@ const fetchDescription = async (item: DataItem) => {
     const $ = load(articleHtml);
     const content = $('#article .cntimage');
 
-    content.find('script').remove();
     content.find('h1.title, time.yeartime').remove();
 
     content.find('img').each((_, img) => {
@@ -55,7 +54,7 @@ const fetchDescription = async (item: DataItem) => {
         }
     });
 
-    item.description = content.html()?.trim() ?? '';
+    item.description = content.html()?.trim();
     item.image = getAbsoluteUrl($('meta[property="og:image"]').attr('content')) ?? item.image;
     item.author = getArticleAuthor($) ?? item.author;
     const categories = getArticleCategories($);
@@ -91,9 +90,9 @@ export const route: Route = {
 };
 
 async function handler(ctx) {
-    const limit = Number(ctx.req.query('limit')) || DEFAULT_LIMIT;
+    const limit = getRouteLimit(ctx, DEFAULT_LIMIT);
 
-    const html = await ofetch(LIST_URL, getRequestOptions(ROOT_URL));
+    const html = await ofetch(LIST_URL);
     const $ = load(html);
 
     const list: DataItem[] = $('.card')
@@ -105,7 +104,7 @@ async function handler(ctx) {
             const link = path ? new URL(path, ROOT_URL).href : undefined;
             const title = anchor.find('span').text();
             const pubDate = parseDate(card.find('time').attr('datetime') ?? '');
-            const category = card.find('.catab').text().trim();
+            const category = card.find('.catab').text();
             const imagePath = card.find('.thumb img').attr('src') ?? card.find('.thumb img').attr('data-src');
 
             return {
@@ -139,7 +138,7 @@ async function handler(ctx) {
     return {
         title: 'GIGAZINE - English News',
         link: LIST_URL,
-        language: 'en',
+        language: 'en' as const satisfies Language,
         item: items,
     };
 }

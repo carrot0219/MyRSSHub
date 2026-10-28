@@ -35,7 +35,10 @@ const parseBlogArticle = async (item) => {
         .find('p')
         // Non-breaking space U+00A0, `&nbsp;` in html
         // element.children[0].data === $(element, article).text()
-        .filter((_, element) => element.children[0].data === String.fromCodePoint(160))
+        .filter((_, element) => {
+            const node = element.children[0];
+            return node?.nodeType === 3 && node.data === String.fromCodePoint(160);
+        })
         .remove();
 
     item.description = article.html();

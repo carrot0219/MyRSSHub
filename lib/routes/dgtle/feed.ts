@@ -2,15 +2,13 @@ import type { CheerioAPI } from 'cheerio';
 import { load } from 'cheerio';
 import type { Context } from 'hono';
 
-import type { Data, DataItem, Route } from '@/types';
+import type { Data, DataItem, Language, Route } from '@/types';
 import { ViewType } from '@/types';
 import ofetch from '@/utils/ofetch';
 
 import { baseUrl, ProcessFeedItems } from './util';
 
 export const handler = async (ctx: Context): Promise<Data> => {
-    const limit = Number(ctx.req.query('limit') ?? '30');
-
     const targetUrl: string = new URL('feed', baseUrl).href;
     const apiUrl: string = new URL('feed/getHotDynamic', baseUrl).href;
 
@@ -22,16 +20,15 @@ export const handler = async (ctx: Context): Promise<Data> => {
 
     const targetResponse = await ofetch(targetUrl);
     const $: CheerioAPI = load(targetResponse);
-    const language = $('html').attr('lang') ?? 'zh-CN';
+    const language = ($('html').attr('lang') ?? 'zh-CN') as Language;
 
-    const items: DataItem[] = ProcessFeedItems(limit, response.data.dataList, $);
+    const items: DataItem[] = ProcessFeedItems(ctx, 30, response.data.dataList, $);
 
     return {
         title: $('title').text(),
         description: $('meta[name="description"]').attr('content'),
         link: targetUrl,
         item: items,
-        allowEmpty: true,
         author: $('meta[name="keywords"]').attr('content')?.split(/,/, 1)[0] ?? undefined,
         language,
         id: targetUrl,

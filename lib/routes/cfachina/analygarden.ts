@@ -3,6 +3,7 @@ import { load } from 'cheerio';
 import type { Route } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
+import { getRouteLimit } from '@/utils/route-limit';
 import timezone from '@/utils/timezone';
 
 export const route: Route = {
@@ -44,7 +45,7 @@ async function handler(ctx) {
         const $ = load(response.data);
         program = $('script:contains("Paging")')
             .text()
-            .match(/var name = '(.+)';/)[1];
+            .match(/var name = '(.+)';/)![1];
         pageData = {
             category: $('.crumb a')
                 .toArray()
@@ -59,7 +60,7 @@ async function handler(ctx) {
         },
         searchParams: {
             pageNo: 1,
-            pageSize: ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 20,
+            pageSize: getRouteLimit(ctx, 20),
             keyword: '',
             startTime: '',
             endTime: '',

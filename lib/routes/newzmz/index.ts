@@ -1,8 +1,9 @@
 import { load } from 'cheerio';
 
-import type { Route } from '@/types';
+import type { Language, Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
+import { getRouteLimit } from '@/utils/route-limit';
 
 import { getItemInfo, getItems, processItems, rootUrl } from './util';
 
@@ -36,13 +37,13 @@ export const route: Route = {
 
 async function handler(ctx) {
     const { id = '1', downLinkType = '磁力链' } = ctx.req.param();
-    const limit = ctx.req.query('limit') ? Number(ctx.req.query('limit')) : 50;
+    const limit = getRouteLimit(ctx, 50);
 
     // If the id is not composed solely of digits,
     // then consider it as the id of a movie or TV show;
     // otherwise, consider it as the id for the category.
 
-    const isCategory = !Number.isNaN(id);
+    const isCategory = /^\d+$/.test(id);
 
     const currentUrl = new URL(isCategory ? 'index.html' : `details-${id}.html`, rootUrl).href;
 
@@ -60,7 +61,7 @@ async function handler(ctx) {
     // Otherwise, if only a specific TV show or movie ID is provided,
     // add that item alone to the "to be processed" array.
 
-    let items = isCategory
+    let items: any[] = isCategory
         ? await getItems(currentUrl, id, 'div.rowMod', 'ul.slides li a')
         : [
               {
@@ -86,12 +87,11 @@ async function handler(ctx) {
         title,
         link: currentUrl,
         description: $('meta[name="description"]').prop('content'),
-        language: 'zh-cn',
+        language: 'zh-CN' as const satisfies Language,
         image: $('img.logo-img').prop('src'),
         icon,
         logo: icon,
         subtitle: $('meta[name="keywords"]').prop('content'),
         author: title,
-        allowEmpty: true,
     };
 }

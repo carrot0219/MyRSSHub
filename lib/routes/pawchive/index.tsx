@@ -1,3 +1,4 @@
+import { load } from 'cheerio';
 import type { Context } from 'hono';
 import { raw } from 'hono/html';
 import { renderToString } from 'hono/jsx/dom/server';
@@ -7,8 +8,35 @@ import cache from '@/utils/cache';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
-import { apiBaseUrl, baseUrl, fileUrl, thumbnailUrl } from './const';
+import { apiBaseUrl, baseUrl, fileUrl, MIME_TYPE_MAP, thumbnailUrl } from './const';
 import type { PawchiveFile, PawchivePost } from './types';
+
+function generateEnclosureInfo(htmlContent: string): { enclosure_url?: string; enclosure_type?: string } {
+    const $ = load(htmlContent);
+    let enclosureInfo = {};
+
+    $('audio source, video source').each((_, el) => {
+        const src = $(el).attr('src');
+        if (!src) {
+            return;
+        }
+
+        const extension = new URL(src, baseUrl).pathname.replace(/.*\./, '').toLowerCase();
+        const mimeType = Object.entries(MIME_TYPE_MAP).find(([key]) => key === extension)?.[1];
+
+        if (!mimeType) {
+            return;
+        }
+
+        enclosureInfo = {
+            enclosure_url: src,
+            enclosure_type: mimeType,
+        };
+        return false;
+    });
+
+    return enclosureInfo;
+}
 
 export const route: Route = {
     path: '/:service/:id',
@@ -29,11 +57,11 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['pawchive.st/'],
+            source: ['pawchive.pw/'],
             target: '',
         },
         {
-            source: ['pawchive.st/:service/user/:id'],
+            source: ['pawchive.pw/:service/user/:id'],
             target: '/:service/:id',
         },
     ],
@@ -54,7 +82,7 @@ const processPostFiles = (post: PawchivePost) =>
                 path: file.path,
             };
         })
-        .filter(Boolean) as PawchiveFile[];
+        .filter((file) => file !== null);
 
 const render = (post: PawchivePost, files: PawchiveFile[]) =>
     renderToString(
@@ -63,7 +91,7 @@ const render = (post: PawchivePost, files: PawchiveFile[]) =>
             {files.length > 0 && (
                 <ul>
                     {files.map((file) => {
-                        const extension = file.path.replace(/.*\./, '').toLowerCase();
+                        const extension = new URL(file.path, fileUrl).pathname.replace(/.*\./, '').toLowerCase();
 
                         let element;
                         if (['gif', 'jpg', 'jpeg', 'png', 'webp', 'jpeg', 'jfif'].includes(extension)) {
@@ -78,14 +106,14 @@ const render = (post: PawchivePost, files: PawchiveFile[]) =>
                         } else if (['m4a', 'mp3', 'ogg'].includes(extension)) {
                             element = (
                                 <audio controls preload="metadata">
-                                    <source src={`${fileUrl}${file.path}`} type={`audio/${extension}`} />
+                                    <source src={`${fileUrl}${file.path}`} type={MIME_TYPE_MAP[extension]} />
                                 </audio>
                             );
                         } else if (['mp4', 'webm'].includes(extension)) {
                             element = (
                                 <>
                                     <video controls preload="metadata">
-                                        <source src={`${fileUrl}${file.path}`} type={`video/${extension}`} />
+                                        <source src={`${fileUrl}${file.path}`} type={MIME_TYPE_MAP[extension]} />
                                     </video>
                                     <summary>{file.name}</summary>
                                 </>
@@ -113,20 +141,24 @@ async function handler(ctx: Context) {
         throw new Error('The user does not exist.');
     }
 
-    const author = (await cache.tryGet(`pawchive:${service}:${id}`, async () => {
+    const author = await cache.tryGet<string>(`pawchive:${service}:${id}`, async () => {
         const profileUrl = `${apiBaseUrl}/${service}/user/${id}/profile`;
         const data = await ofetch(profileUrl);
         return data.name || 'Unknown User';
-    })) as Promise<string>;
+    });
 
-    const items = response.map((post) => ({
-        title: post.title || 'Untitled Post',
-        description: render(post, processPostFiles(post)),
-        author,
-        pubDate: parseDate(post.published),
-        link: `${baseUrl}/${post.service}/user/${post.user}/post/${post.id}`,
-        guid: `pawchive:${post.service}:${post.user}:post:${post.id}`,
-    }));
+    const items = response.map((post) => {
+        const description = render(post, processPostFiles(post));
+        return {
+            title: post.title || 'Untitled Post',
+            description,
+            author,
+            pubDate: parseDate(post.published),
+            link: `${baseUrl}/${post.service}/user/${post.user}/post/${post.id}`,
+            guid: `pawchive:${post.service}:${post.user}:post:${post.id}`,
+            ...generateEnclosureInfo(description),
+        };
+    });
 
     return {
         title: `Posts of ${author} from ${service} | Pawchive`,

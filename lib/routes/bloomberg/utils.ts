@@ -2,7 +2,6 @@ import { load } from 'cheerio';
 import { destr } from 'destr';
 
 import cache from '@/utils/cache';
-import got from '@/utils/got';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
@@ -71,27 +70,15 @@ const redirectGot = (url) =>
         }),
     });
 
-const parseNewsList = async (url, ctx) => {
-    const resp = await got(url);
-    const $ = load(resp.data, {
-        xml: {
-            xmlMode: true,
-        },
-    });
-    const urls = $('urlset url');
-    return urls
-        .toArray()
-        .slice(0, ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 50)
-        .map((u) => {
-            u = $(u);
-            const item = {
-                title: u.find(String.raw`news\:title`).text(),
-                link: u.find('loc').text(),
-                pubDate: parseDate(u.find(String.raw`news\:publication_date`).text()),
-            };
-            return item;
-        });
-};
+const getFeedItemFallback = (item) => ({
+    title: item.title,
+    link: item.link,
+    guid: item.guid,
+    pubDate: item.pubDate,
+    description: item.description || item.content,
+    author: item.author || item.creator,
+    category: item.category || item.categories,
+});
 
 const parseArticle = (item) =>
     cache.tryGet(item.link, async () => {
@@ -102,7 +89,7 @@ const parseArticle = (item) =>
         if (group) {
             const { page, link } = group;
             if (Object.hasOwn(apiEndpoints, page)) {
-                const api = { ...apiEndpoints[page] };
+                const api = apiEndpoints[page];
                 let res;
 
                 try {
@@ -110,27 +97,19 @@ const parseArticle = (item) =>
                     res = await redirectGot(apiUrl);
                 } catch (error) {
                     // fallback
-                    if (error.name && ['HTTPError', 'RequestError', 'FetchError'].includes(error.name)) {
+                    if (error instanceof Error && ['HTTPError', 'RequestError', 'FetchError'].includes(error.name)) {
                         try {
                             res = await redirectGot(item.link);
                         } catch {
                             // return the default one
-                            return {
-                                title: item.title,
-                                link: item.link,
-                                pubDate: item.pubDate,
-                            };
+                            return getFeedItemFallback(item);
                         }
                     }
                 }
 
                 // Blocked by PX3, or 404 by both api and direct link, return the default
                 if ((res.redirected && new URL(res.url).pathname === '/tosv2.html') || res.status === 404) {
-                    return {
-                        title: item.title,
-                        link: item.link,
-                        pubDate: item.pubDate,
-                    };
+                    return getFeedItemFallback(item);
                 }
 
                 switch (page) {
@@ -147,18 +126,18 @@ const parseArticle = (item) =>
                 }
             }
         }
-        return item;
+        return getFeedItemFallback(item);
     });
 
 const parseAudioPage = async (res, api, item) => {
-    const audio_json = JSON.parse(load(res.data)(api.sel).html()).props.pageProps;
+    const audio_json = JSON.parse(load(res.data)(api.sel).html() ?? '').props.pageProps;
     const episode = audio_json.episode;
     const rss_item = {
         title: episode.title || item.title,
         link: audio_json.pageInfo.canonicalUrl || item.link,
         guid: `bloomberg:${episode.id}`,
         description: (await processBody(episode.articleBody, audio_json)).replaceAll(emptyRegex, ''),
-        pubDate: parseDate(episode.publishedAt) || item.pubDate,
+        pubDate: episode.publishedAt ? parseDate(episode.publishedAt) : item.pubDate,
         author: audio_json.hero.showTitle,
         media: {
             content: { url: episode.image },
@@ -187,23 +166,34 @@ const parseVideoPage = async (res, api, item) => {
             link: video_story.url || item.link,
             guid: `bloomberg:${video_story.id}`,
             description: renderVideoMedia(desc),
-            pubDate: parseDate(video_story.publishedAt) || item.pubDate,
+            pubDate: video_story.publishedAt ? parseDate(video_story.publishedAt) : item.pubDate,
             media: {
                 content: { url: video_story.video?.thumbnail.url || '' },
                 thumbnails: { url: video_story.video?.thumbnail.url || '' },
             },
-            category: desc.keywords ?? [],
+            category: [],
         };
         return rss_item;
     }
     return item;
 };
 
+interface PhotoEssayArticle {
+    headline?: string;
+    canonical?: string;
+    id?: string;
+    body?: string;
+    authors?: Array<{ name: string }>;
+}
+
 const parsePhotoEssaysPage = async (res, api, item) => {
     const $ = load(res.data.html);
-    const article_json = {};
+    const article_json: PhotoEssayArticle = {};
     for (const e of $(api.sel).toArray()) {
-        Object.assign(article_json, JSON.parse($(e).html()));
+        const raw = $(e).html();
+        if (raw !== null) {
+            Object.assign(article_json, JSON.parse(raw));
+        }
     }
     const rss_item = {
         title: article_json.headline || item.title,
@@ -221,27 +211,23 @@ const parseReactRendererPage = async (res, api, item) => {
     const story_id = JSON.parse(json)[api.prop];
     try {
         const res = await redirectGot(`${idUrl}${story_id}`);
-        return await parseStoryJson(res._data, item);
+        return await parseStoryJson(res._data.data, item);
     } catch (error) {
         // fallback
-        if (error.name && ['HTTPError', 'RequestError', 'FetchError'].includes(error.name)) {
-            return {
-                title: item.title,
-                link: item.link,
-                pubDate: item.pubDate,
-            };
+        if (error instanceof Error && ['HTTPError', 'RequestError', 'FetchError'].includes(error.name)) {
+            return getFeedItemFallback(item);
         }
     }
 };
 
 const parseStoryJson = async (story_json, item) => {
-    const media_img = story_json.ledeImageUrl || Object.values(story_json.imageAttachments ?? {})[0]?.url;
+    const media_img = story_json.ledeImageUrl || Object.values<any>(story_json.imageAttachments ?? {})[0]?.url;
     const rss_item = {
         title: story_json.headline || item.title,
         link: story_json.url || item.link,
         guid: `bloomberg:${story_json.id}`,
         description: processHeadline(story_json) + (await processLedeMedia(story_json)) + (await documentToHtmlString(story_json.body || '')),
-        pubDate: parseDate(story_json.publishedAt) || item.pubDate,
+        pubDate: story_json.publishedAt ? parseDate(story_json.publishedAt) : item.pubDate,
         author: story_json.authors?.map((a) => a.name).join(', ') ?? [],
         category: story_json.mostRelevantTags ?? [],
         media: {
@@ -253,7 +239,7 @@ const parseStoryJson = async (story_json, item) => {
 };
 
 const processHeadline = (story_json) => {
-    const dek = story_json.dek || story_json.summary || story_json.headline || '';
+    const dek = story_json.dek || story_json.summary || '';
     const abs = story_json.abstract?.map((a) => `<li>${a}</li>`).join('');
     return abs ? dek + `<ul>${abs}</ul>` : dek;
 };
@@ -268,7 +254,7 @@ const processLedeMedia = async (story_json) => {
             description: story_json.ledeDescription?.replaceAll(capRegex, '') ?? '',
             credit: story_json.ledeCredit?.replaceAll(capRegex, '') ?? '',
             src: story_json.ledeImageUrl,
-            video: kind === 'video' && (await processVideo(story_json.ledeAttachment.bmmrId)),
+            video: kind === 'video' ? await processVideo(story_json.ledeAttachment.bmmrId) : undefined,
         };
         return renderLedeMedia(media);
     }
@@ -283,7 +269,7 @@ const processLedeMedia = async (story_json) => {
         return renderImageFigure(image);
     }
     if (story_json.imageAttachments) {
-        const attachment = Object.values(story_json.imageAttachments)[0];
+        const attachment = Object.values<any>(story_json.imageAttachments)[0];
         if (attachment) {
             const image = {
                 src: attachment.baseUrl || attachment.url,
@@ -295,22 +281,24 @@ const processLedeMedia = async (story_json) => {
         }
         return '';
     }
-    if (story_json.type === 'Lede') {
-        const props = story_json.props;
-
-        const media = {
-            kind: props.media,
-            caption: props.caption?.replaceAll(capRegex, '') ?? '',
-            description: props.dek?.replaceAll(capRegex, '') ?? '',
-            credit: props.credit?.replaceAll(capRegex, '') ?? '',
-            src: props.url,
-        };
-        return renderLedeMedia(media);
+    if (story_json.type !== 'Lede') {
+        return '';
     }
+
+    const props = story_json.props;
+
+    const media = {
+        kind: props.media,
+        caption: props.caption?.replaceAll(capRegex, '') ?? '',
+        description: props.dek?.replaceAll(capRegex, '') ?? '',
+        credit: props.credit?.replaceAll(capRegex, '') ?? '',
+        src: props.url,
+    };
+    return renderLedeMedia(media);
 };
 
 const processBody = async (body_html, story_json) => {
-    const removeSel = ['meta', 'script', '*[class$="-footnotes"]', '*[class$="for-you"]', '*[class$="-newsletter"]', '*[class$="page-ad"]', '*[class$="-recirc"]', '*[data-ad-placeholder="Advertisement"]'];
+    const removeSel = ['meta', '*[class$="-footnotes"]', '*[class$="for-you"]', '*[class$="-newsletter"]', '*[class$="page-ad"]', '*[class$="-recirc"]', '*[data-ad-placeholder="Advertisement"]'];
 
     const $ = load(body_html);
     for (const sel of removeSel) {
@@ -323,12 +311,13 @@ const processBody = async (body_html, story_json) => {
     for await (const e of $('figure')) {
         const imageType = $(e).data('image-type');
         const type = $(e).data('type');
+        const figureId = $(e).data('id') as string | number;
 
         let new_figure = '';
         if (imageType === 'audio') {
             let audio = {};
             if (story_json.audios) {
-                const attachment = story_json.audios.find((a) => a.id.toString() === $(e).data('id').toString());
+                const attachment = story_json.audios.find((a) => a.id.toString() === figureId.toString());
                 audio = {
                     img: attachment.image?.url || $(e).find('img').attr('src'),
                     src: attachment.url || $(e).find('audio source').attr('src'),
@@ -349,18 +338,18 @@ const processBody = async (body_html, story_json) => {
             new_figure = renderAudioMedia(audio);
         } else if (imageType === 'video') {
             if (story_json.videoAttachments) {
-                const attachment = story_json.videoAttachments[$(e).data('id')];
+                const attachment = story_json.videoAttachments[figureId];
                 const video = await processVideo(attachment.bmmrId);
                 new_figure = renderVideoMedia(video);
             }
         } else if (imageType === 'photo' || imageType === 'image' || type === 'image') {
             let src, alt;
             if (story_json.imageAttachments) {
-                const attachment = story_json.imageAttachments[$(e).data('id')];
+                const attachment = story_json.imageAttachments[figureId];
                 alt = attachment?.alt || $(e).find('img').attr('alt')?.trim();
                 src = attachment?.baseUrl;
             } else {
-                alt = $(e).find('img').attr('alt').trim();
+                alt = $(e).find('img').attr('alt')!.trim();
                 src = $(e).find('img').data('native-src');
             }
             const caption = $(e).find('[class$="text"], .caption, .photo-essay__text').html()?.trim() ?? '';
@@ -464,7 +453,7 @@ const nodeRenderers = {
             const s = node.data.security.identifiers.parsekey;
             if (s) {
                 const c = s.split(' ');
-                const href = [...'https://www.bloomberg.com/quote/'.concat(c[0], ':'), c[1]];
+                const href = `https://www.bloomberg.com/quote/${c[0]}:${c[1]}`;
                 return `<a href="${href}" target="_blank">${await nextNode(node.content)}</a>`;
             }
         }
@@ -566,7 +555,7 @@ const nodeRenderers = {
                 type: e.dataType,
             }))
             .map((e) => `<th colspan=${e.span}>${e.title}</th>`);
-        return `<tr>${cols}</tr>`;
+        return `<tr>${cols.join('')}</tr>`;
     },
     row: async (node, nextNode) => `<tr>${await nextNode(node.content)}</tr>`,
     cell: async (node, nextNode) => {
@@ -611,4 +600,4 @@ const documentToHtmlString = async (document) => {
     return str;
 };
 
-export { parseArticle, parseNewsList, rootUrl };
+export { parseArticle, rootUrl };
